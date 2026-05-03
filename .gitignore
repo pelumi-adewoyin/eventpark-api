@@ -1,0 +1,6 @@
+.env
+*.env.local
+server
+__debug_bin
+*.test
+/tmp/

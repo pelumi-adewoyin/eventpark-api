@@ -1,0 +1,143 @@
+package handlers
+
+import (
+	"net/http"
+
+	"github.com/eventpark/api/internal/middleware"
+	"github.com/eventpark/api/internal/models"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type UsersHandler struct {
+	db *pgxpool.Pool
+}
+
+func NewUsersHandler(db *pgxpool.Pool) *UsersHandler {
+	return &UsersHandler{db: db}
+}
+
+// GET /users/me
+func (h *UsersHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r)
+	if u == nil {
+		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	var user models.User
+	err := h.db.QueryRow(r.Context(),
+		`SELECT id, phone, email, full_name, avatar_url, role, kyc_tier, onboarding_done, created_at, updated_at
+		 FROM users WHERE id = $1`, u.ID,
+	).Scan(
+		&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
+		&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
+	)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "user not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
+// PATCH /users/me
+func (h *UsersHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r)
+	if u == nil {
+		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	var body struct {
+		FullName  *string `json:"full_name"`
+		Email     *string `json:"email"`
+		AvatarURL *string `json:"avatar_url"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	_, err := h.db.Exec(r.Context(),
+		`UPDATE users SET
+		  full_name  = COALESCE($2, full_name),
+		  email      = COALESCE($3, email),
+		  avatar_url = COALESCE($4, avatar_url),
+		  updated_at = NOW()
+		 WHERE id = $1`,
+		u.ID, body.FullName, body.Email, body.AvatarURL,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to update user")
+		return
+	}
+
+	h.GetMe(w, r)
+}
+
+// POST /users/onboarding
+func (h *UsersHandler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r)
+	if u == nil {
+		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	var body struct {
+		Role     string  `json:"role"`       // diy | planner | corporate
+		FullName *string `json:"full_name"`
+		Email    *string `json:"email"`
+		// Corporate-specific
+		OrgName    *string `json:"org_name"`
+		RCNumber   *string `json:"rc_number"`
+		Industry   *string `json:"industry"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	validRoles := map[string]bool{"diy": true, "planner": true, "corporate": true}
+	if !validRoles[body.Role] {
+		writeErr(w, http.StatusBadRequest, "role must be diy, planner, or corporate")
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "transaction error")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(),
+		`UPDATE users SET role = $2, full_name = COALESCE($3, full_name),
+		  email = COALESCE($4, email), onboarding_done = true, updated_at = NOW()
+		 WHERE id = $1`,
+		u.ID, body.Role, body.FullName, body.Email,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to update user")
+		return
+	}
+
+	// For corporate users, create an organisation
+	if body.Role == "corporate" && body.OrgName != nil {
+		_, err = tx.Exec(r.Context(),
+			`INSERT INTO organisations (name, rc_number, industry, owner_id)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT DO NOTHING`,
+			body.OrgName, body.RCNumber, body.Industry, u.ID,
+		)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to create organisation")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "commit failed")
+		return
+	}
+
+	h.GetMe(w, r)
+}
