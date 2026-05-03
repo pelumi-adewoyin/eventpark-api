@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"time"
@@ -17,10 +20,18 @@ type AuthHandler struct {
 	db               *pgxpool.Pool
 	jwtSecret        string
 	jwtRefreshSecret string
+	termiiKey        string
+	env              string
 }
 
-func NewAuthHandler(db *pgxpool.Pool, jwtSecret, jwtRefreshSecret string) *AuthHandler {
-	return &AuthHandler{db: db, jwtSecret: jwtSecret, jwtRefreshSecret: jwtRefreshSecret}
+func NewAuthHandler(db *pgxpool.Pool, jwtSecret, jwtRefreshSecret, termiiKey, env string) *AuthHandler {
+	return &AuthHandler{
+		db:               db,
+		jwtSecret:        jwtSecret,
+		jwtRefreshSecret: jwtRefreshSecret,
+		termiiKey:        termiiKey,
+		env:              env,
+	}
 }
 
 // POST /auth/request-otp
@@ -46,13 +57,49 @@ func (h *AuthHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// In production: send via Termii/Twilio SMS
-	// For development: return code in response
-	resp := map[string]any{"message": "OTP sent", "expires_in": 600}
-	if r.Header.Get("X-Dev-Mode") == "true" {
-		resp["code"] = code // only expose in dev mode
+	// Send OTP via Termii
+	if h.termiiKey != "" {
+		if err := h.sendTermiiOTP(body.Phone, code); err != nil {
+			log.Printf("Termii SMS failed for %s: %v", body.Phone, err)
+			// Don't fail the request — fall through
+		}
+	}
+
+	resp := map[string]any{"message": "OTP sent to your phone", "expires_in": 600}
+	// Return code in non-production for easy testing
+	if h.env != "production" {
+		resp["code"] = code
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *AuthHandler) sendTermiiOTP(phone, code string) error {
+	// Normalize Nigerian numbers: 08012345678 → 2348012345678
+	normalized := phone
+	if len(phone) == 11 && phone[0] == '0' {
+		normalized = "234" + phone[1:]
+	}
+
+	payload := map[string]any{
+		"to":      normalized,
+		"from":    "EventPark",
+		"sms":     fmt.Sprintf("Your EventPark verification code is %s. Valid for 10 minutes. Do not share this code.", code),
+		"type":    "plain",
+		"channel": "generic",
+		"api_key": h.termiiKey,
+	}
+
+	b, _ := json.Marshal(payload)
+	resp, err := http.Post("https://api.ng.termii.com/api/sms/send", "application/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("termii returned status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // POST /auth/verify-otp

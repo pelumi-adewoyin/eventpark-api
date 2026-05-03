@@ -25,7 +25,7 @@ func main() {
 	log.Println("connected to database")
 
 	// Handlers
-	authH    := handlers.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTRefreshSecret)
+	authH    := handlers.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTRefreshSecret, cfg.TermiiAPIKey, cfg.Env)
 	usersH   := handlers.NewUsersHandler(pool)
 	eventsH  := handlers.NewEventsHandler(pool)
 	guestsH  := handlers.NewGuestsHandler(pool)
