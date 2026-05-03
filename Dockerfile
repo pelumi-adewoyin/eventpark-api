@@ -2,11 +2,9 @@ FROM golang:1.22 AS builder
 
 WORKDIR /app
 
-COPY go.mod ./
-RUN go mod download -mod=mod || true
-
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -ldflags="-s -w" -o /app/server ./cmd/api
+RUN go mod tidy
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/server ./cmd/api
 
 FROM debian:bookworm-slim
 
