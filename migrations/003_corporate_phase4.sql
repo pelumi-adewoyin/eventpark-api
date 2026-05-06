@@ -61,7 +61,8 @@ ALTER TABLE organisations
   ADD COLUMN IF NOT EXISTS plan           VARCHAR(50) NOT NULL DEFAULT 'starter',
   ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
-CREATE TRIGGER IF NOT EXISTS trg_orgs_updated_at BEFORE UPDATE ON organisations
+DROP TRIGGER IF EXISTS trg_orgs_updated_at ON organisations;
+CREATE TRIGGER trg_orgs_updated_at BEFORE UPDATE ON organisations
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ─── KYB DOCUMENTS ────────────────────────────────────────────────────────────
