@@ -24,7 +24,7 @@ func main() {
 	defer pool.Close()
 	log.Println("connected to database")
 
-	// Handlers
+	// ── Handlers ──────────────────────────────────────────────────────────────
 	authH    := handlers.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTRefreshSecret, cfg.TermiiAPIKey, cfg.Env)
 	usersH   := handlers.NewUsersHandler(pool)
 	eventsH  := handlers.NewEventsHandler(pool)
@@ -33,6 +33,16 @@ func main() {
 	kycH     := handlers.NewKYCHandler(pool, cfg.DojahAppID, cfg.DojahPrivateKey)
 	vendorsH := handlers.NewVendorsHandler(pool)
 	discoverH := handlers.NewDiscoverHandler(pool)
+
+	// Phase 2 / 4 handlers
+	rsvpH    := handlers.NewRSVPHandler(pool)
+	budgetH  := handlers.NewBudgetHandler(pool)
+	orgsH    := handlers.NewOrganisationsHandler(pool)
+	approvH  := handlers.NewApprovalsHandler(pool)
+	rfqsH    := handlers.NewRFQsHandler(pool)
+	procH    := handlers.NewProcurementHandler(pool)
+	corpWalH := handlers.NewCorpWalletHandler(pool)
+	auditH   := handlers.NewAuditHandler(pool)
 
 	r := chi.NewRouter()
 
@@ -43,15 +53,16 @@ func main() {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"https://*.vercel.app", "http://localhost:5173", "http://localhost:3000"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Dev-Mode"},
-		ExposedHeaders:   []string{"Link"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Dev-Mode", "X-User-ID"},
+		ExposedHeaders:   []string{"Link", "Content-Disposition"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
+	// ── Health ────────────────────────────────────────────────────────────────
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","version":"2.0.0"}`))
 	})
 
 	// ── Auth (public) ──────────────────────────────────────────────────────────
@@ -64,10 +75,14 @@ func main() {
 	r.Get("/discover/vendors", discoverH.Vendors)
 	r.Get("/discover/products", discoverH.Products)
 
-	// ── Paystack webhook (public, verified by sig) ─────────────────────────────
+	// ── RSVP (public — guest follows their link) ──────────────────────────────
+	r.Get("/rsvp/{token}", rsvpH.GetRSVP)
+	r.Post("/rsvp/{token}/respond", rsvpH.Respond)
+
+	// ── Paystack webhook (public, sig-verified) ────────────────────────────────
 	r.Post("/wallet/topup/webhook", walletH.PaystackWebhook)
 
-	// ── Authenticated routes ───────────────────────────────────────────────────
+	// ── Authenticated routes ──────────────────────────────────────────────────
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Authenticate(cfg.JWTSecret))
 
@@ -79,7 +94,7 @@ func main() {
 		r.Patch("/users/me", usersH.UpdateMe)
 		r.Post("/users/onboarding", usersH.CompleteOnboarding)
 
-		// Events
+		// ── Events ───────────────────────────────────────────────────────────
 		r.Post("/events", eventsH.CreateEvent)
 		r.Get("/events", eventsH.ListMyEvents)
 		r.Get("/events/{id}", eventsH.GetEvent)
@@ -87,36 +102,124 @@ func main() {
 		r.Delete("/events/{id}", eventsH.DeleteEvent)
 		r.Post("/events/{id}/publish", eventsH.PublishEvent)
 
-		// Guests / Check-in
+		// ── Budget Lines ──────────────────────────────────────────────────────
+		r.Get("/events/{id}/budget", budgetH.ListBudgetLines)
+		r.Get("/events/{id}/budget/summary", budgetH.BudgetSummary)
+		r.Post("/events/{id}/budget", budgetH.CreateBudgetLine)
+		r.Patch("/events/{id}/budget/{lineId}", budgetH.UpdateBudgetLine)
+		r.Delete("/events/{id}/budget/{lineId}", budgetH.DeleteBudgetLine)
+
+		// ── Guests / Check-in ─────────────────────────────────────────────────
 		r.Post("/events/{id}/guests", guestsH.InviteGuests)
 		r.Get("/events/{id}/guests", guestsH.ListGuests)
 		r.Post("/checkin/{eventId}", guestsH.CheckIn)
 		r.Get("/checkin/{eventId}/stats", guestsH.CheckInStats)
 
-		// Wallet
+		// ── Personal Wallet ───────────────────────────────────────────────────
 		r.Get("/wallet", walletH.GetWallet)
 		r.Get("/wallet/transactions", walletH.ListTransactions)
 		r.Post("/wallet/topup/initialize", walletH.InitializeTopUp)
 		r.Get("/wallet/topup/verify", walletH.VerifyTopUp)
 		r.Post("/wallet/withdraw", walletH.Withdraw)
 
-		// KYC
+		// ── KYC (personal) ────────────────────────────────────────────────────
 		r.Get("/kyc/status", kycH.GetStatus)
 		r.Post("/kyc/verify-bvn", kycH.VerifyBVN)
 		r.Post("/kyc/verify-nin", kycH.VerifyNIN)
 
-		// Vendors
+		// ── Vendors (marketplace) ─────────────────────────────────────────────
 		r.Post("/vendors", vendorsH.CreateVendor)
 		r.Get("/vendors/{id}", vendorsH.GetVendor)
 		r.Post("/vendors/{id}/services", vendorsH.AddService)
 
-		// Bookings
+		// ── Bookings ──────────────────────────────────────────────────────────
 		r.Post("/bookings", vendorsH.CreateBooking)
 		r.Post("/bookings/{id}/release-escrow", vendorsH.ReleaseEscrow)
+
+		// ── Notifications ─────────────────────────────────────────────────────
+		r.Get("/notifications", rsvpH.ListNotifications)
+		r.Post("/notifications/mark-read", rsvpH.MarkAllRead)
+
+		// ── Organisations ─────────────────────────────────────────────────────
+		r.Post("/orgs", orgsH.CreateOrg)
+		r.Get("/orgs/me", orgsH.GetMyOrg)
+
+		r.Route("/orgs/{orgId}", func(r chi.Router) {
+			r.Patch("/", orgsH.UpdateOrg)
+
+			// KYB documents
+			r.Get("/kyb-documents", orgsH.ListKYBDocuments)
+			r.Post("/kyb-documents", orgsH.UploadKYBDocument)
+
+			// Departments
+			r.Get("/departments", orgsH.ListDepartments)
+			r.Post("/departments", orgsH.CreateDepartment)
+			r.Patch("/departments/{deptId}", orgsH.UpdateDepartment)
+
+			// Members / Employees
+			r.Get("/members", orgsH.ListMembers)
+			r.Post("/members", orgsH.InviteMember)
+			r.Patch("/members/{userId}", orgsH.UpdateMember)
+
+			// Corporate vendor directory
+			r.Get("/vendors", orgsH.ListCorpVendors)
+			r.Post("/vendors", orgsH.AddCorpVendor)
+			r.Patch("/vendors/{vendorId}", orgsH.UpdateCorpVendorStatus)
+
+			// Integrations
+			r.Get("/integrations", orgsH.ListIntegrations)
+			r.Post("/integrations/{name}/toggle", orgsH.ToggleIntegration)
+
+			// ── Approvals ─────────────────────────────────────────────────────
+			r.Get("/approvals", approvH.ListApprovals)
+			r.Post("/approvals", approvH.SubmitApproval)
+			r.Get("/approvals/{id}", approvH.GetApproval)
+			r.Post("/approvals/{id}/approve", approvH.Approve)
+			r.Post("/approvals/{id}/reject", approvH.Reject)
+			r.Post("/approvals/{id}/request-changes", approvH.RequestChanges)
+			r.Post("/approvals/{id}/delegate", approvH.Delegate)
+
+			// ── RFQs ──────────────────────────────────────────────────────────
+			r.Get("/rfqs", rfqsH.ListRFQs)
+			r.Post("/rfqs", rfqsH.CreateRFQ)
+			r.Get("/rfqs/{id}", rfqsH.GetRFQ)
+			r.Post("/rfqs/{id}/send", rfqsH.SendRFQ)
+			r.Post("/rfqs/{id}/respond", rfqsH.SubmitResponse)
+			r.Patch("/rfqs/{id}/responses/{responseId}/score", rfqsH.ScoreResponse)
+			r.Post("/rfqs/{id}/award", rfqsH.AwardRFQ)
+			r.Post("/rfqs/{id}/cancel", rfqsH.CancelRFQ)
+
+			// ── Purchase Orders ───────────────────────────────────────────────
+			r.Get("/pos", procH.ListPOs)
+			r.Post("/pos", procH.CreatePO)
+			r.Get("/pos/{id}", procH.GetPO)
+			r.Post("/pos/{id}/goods-receipt", procH.RecordGoodsReceipt)
+
+			// ── Invoices ──────────────────────────────────────────────────────
+			r.Get("/invoices", procH.ListInvoices)
+			r.Post("/invoices", procH.CreateInvoice)
+			r.Get("/invoices/{id}/match", procH.GetMatchStatus)
+			r.Post("/invoices/{id}/pay", procH.PayInvoice)
+
+			// ── Corporate Wallet ──────────────────────────────────────────────
+			r.Get("/wallet", corpWalH.GetWallet)
+			r.Get("/wallet/transactions", corpWalH.ListTransactions)
+			r.Post("/wallet/topup", corpWalH.TopUp)
+			r.Get("/wallet/signatories", corpWalH.ListSignatories)
+			r.Post("/wallet/signatories", corpWalH.AddSignatory)
+			r.Get("/wallet/withdrawal-requests", corpWalH.ListWithdrawalRequests)
+			r.Post("/wallet/withdrawal-requests", corpWalH.RequestWithdrawal)
+			r.Post("/wallet/withdrawal-requests/{id}/sign", corpWalH.SignWithdrawal)
+
+			// ── Audit Log ─────────────────────────────────────────────────────
+			r.Get("/audit", auditH.ListAuditLogs)
+			r.Get("/audit/verify", auditH.VerifyChain)
+			r.Get("/audit/export", auditH.ExportAuditCSV)
+		})
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
-	log.Printf("EventPark API listening on %s", addr)
+	log.Printf("EventPark API v2 listening on %s", addr)
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
