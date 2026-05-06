@@ -9,6 +9,7 @@ import (
 	"github.com/eventpark/api/internal/db"
 	"github.com/eventpark/api/internal/handlers"
 	"github.com/eventpark/api/internal/middleware"
+	"github.com/eventpark/api/migrations"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -23,6 +24,13 @@ func main() {
 	}
 	defer pool.Close()
 	log.Println("connected to database")
+
+	// Run any pending SQL migrations before accepting traffic.
+	// migrations.FS is the embed.FS exported by the migrations package —
+	// all *.sql files are compiled into the binary so no file I/O at runtime.
+	if err := db.RunMigrations(pool, migrations.FS); err != nil {
+		log.Fatalf("migrations failed: %v", err)
+	}
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	authH    := handlers.NewAuthHandler(pool, cfg.JWTSecret, cfg.JWTRefreshSecret, cfg.TermiiAPIKey, cfg.Env)
