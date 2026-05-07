@@ -29,15 +29,16 @@ func (h *UsersHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(r.Context(),
 		`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
 		        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
-		        m.org_id
+		        m.org_id, o.name
 		 FROM users u
 		 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
+		 LEFT JOIN orgs o ON o.id = m.org_id
 		 WHERE u.id = $1
 		 LIMIT 1`, u.ID,
 	).Scan(
 		&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
 		&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
-		&user.OrgID,
+		&user.OrgID, &user.OrgName,
 	)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "user not found")

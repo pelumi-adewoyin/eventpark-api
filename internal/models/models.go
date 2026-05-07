@@ -18,6 +18,7 @@ type User struct {
 	KYCTier        string     `json:"kyc_tier"`
 	OnboardingDone bool       `json:"onboarding_done"`
 	OrgID          *uuid.UUID `json:"org_id,omitempty"`
+	OrgName        *string    `json:"org_name,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }

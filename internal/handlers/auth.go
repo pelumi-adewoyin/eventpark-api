@@ -176,30 +176,32 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 			 )
 			 SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
 			        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
-			        m.org_id
+			        m.org_id, o.name
 			 FROM upserted u
 			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
+			 LEFT JOIN orgs o ON o.id = m.org_id
 			 LIMIT 1`,
 			body.Phone,
 		).Scan(
 			&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
 			&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
-			&user.OrgID,
+			&user.OrgID, &user.OrgName,
 		)
 	} else {
 		fetchErr = h.db.QueryRow(r.Context(),
 			`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
 			        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
-			        m.org_id
+			        m.org_id, o.name
 			 FROM users u
 			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
+			 LEFT JOIN orgs o ON o.id = m.org_id
 			 WHERE u.phone = $1
 			 LIMIT 1`,
 			body.Phone,
 		).Scan(
 			&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
 			&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
-			&user.OrgID,
+			&user.OrgID, &user.OrgName,
 		)
 	}
 	if fetchErr != nil {
