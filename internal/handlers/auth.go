@@ -152,48 +152,39 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	// Fetch the user. During signup (create_if_missing=true) we upsert so the
 	// account is created on first OTP verify. During login we only look up —
 	// if the phone isn't registered we reject with a clear error.
-	var user models.User
-	var fetchErr error
+	// If creating a new account: INSERT OR IGNORE, then SELECT.
+	// Two separate statements avoids CTE RETURNING gotchas with custom ENUMs.
 	if body.CreateIfMissing {
-		fetchErr = h.db.QueryRow(r.Context(),
-			`WITH upserted AS (
-			   INSERT INTO users (phone) VALUES ($1)
-			   ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
-			   RETURNING id, phone, email, full_name, avatar_url,
-			             role::text, kyc_tier::text, onboarding_done, created_at, updated_at
-			 )
-			 SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url,
-			        u.role, u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
-			        m.org_id, o.name
-			 FROM upserted u
-			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
-			 LEFT JOIN orgs o ON o.id = m.org_id
-			 LIMIT 1`,
+		_, insertErr := h.db.Exec(r.Context(),
+			`INSERT INTO users (phone) VALUES ($1) ON CONFLICT (phone) DO NOTHING`,
 			body.Phone,
-		).Scan(
-			&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
-			&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
-			&user.OrgID, &user.OrgName,
 		)
-	} else {
-		fetchErr = h.db.QueryRow(r.Context(),
-			`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url,
-			        u.role::text, u.kyc_tier::text, u.onboarding_done, u.created_at, u.updated_at,
-			        m.org_id, o.name
-			 FROM users u
-			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
-			 LEFT JOIN orgs o ON o.id = m.org_id
-			 WHERE u.phone = $1
-			 LIMIT 1`,
-			body.Phone,
-		).Scan(
-			&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
-			&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
-			&user.OrgID, &user.OrgName,
-		)
+		if insertErr != nil {
+			log.Printf("VerifyOTP: insert user failed for phone=%s: %v", body.Phone, insertErr)
+			writeErr(w, http.StatusInternalServerError, "failed to create account")
+			return
+		}
 	}
+
+	// SELECT the user (works for both new and existing accounts)
+	var user models.User
+	fetchErr := h.db.QueryRow(r.Context(),
+		`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url,
+		        u.role::text, u.kyc_tier::text, u.onboarding_done, u.created_at, u.updated_at,
+		        m.org_id, o.name
+		 FROM users u
+		 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
+		 LEFT JOIN orgs o ON o.id = m.org_id
+		 WHERE u.phone = $1
+		 LIMIT 1`,
+		body.Phone,
+	).Scan(
+		&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
+		&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
+		&user.OrgID, &user.OrgName,
+	)
 	if fetchErr != nil {
-		log.Printf("VerifyOTP: user fetch failed for phone=%s create_if_missing=%v: %v",
+		log.Printf("VerifyOTP: user select failed for phone=%s create_if_missing=%v: %v",
 			body.Phone, body.CreateIfMissing, fetchErr)
 		writeErr(w, http.StatusNotFound, "No account found for this number. Please sign up to create one.")
 		return
