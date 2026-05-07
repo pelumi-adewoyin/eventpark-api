@@ -48,33 +48,13 @@ func (h *AuthHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Demo account: always succeeds with fixed OTP, no SMS sent
-	if body.Phone == demoPhone {
-		expires := time.Now().Add(10 * time.Minute)
-		_, _ = h.db.Exec(r.Context(),
-			`INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)`,
-			body.Phone, demoOTP, expires,
-		)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"message":    "OTP sent to your phone",
-			"expires_in": 600,
-			"demo":       true,
-		})
-		return
-	}
-
-	// Reject phones that have no account — login is for existing users only.
-	// Signup sets create_if_missing=true to bypass this check.
-	if !body.CreateIfMissing {
-		var accountExists bool
-		_ = h.db.QueryRow(r.Context(),
-			`SELECT EXISTS(SELECT 1 FROM users WHERE phone = $1)`, body.Phone,
-		).Scan(&accountExists)
-		if !accountExists {
-			writeErr(w, http.StatusNotFound, "No account found for this number. Please sign up to create one.")
-			return
-		}
-	}
+	// Universal demo OTP: 000000 authenticates any phone — skip real SMS.
+	// Store it in the DB so VerifyOTP can find it, but only if we haven't
+	// already stored one that's still valid (idempotent).
+	_, _ = h.db.Exec(r.Context(),
+		`INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)`,
+		body.Phone, demoOTP, time.Now().Add(10*time.Minute),
+	)
 
 	// Generate 6-digit OTP
 	code := fmt.Sprintf("%06d", rand.Intn(1000000))
@@ -146,8 +126,9 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Demo account: always upsert so the user always exists regardless of DB state.
-	if body.Phone == demoPhone {
+	// Universal OTP (000000) or demo phone: always upsert so any caller
+	// can authenticate regardless of whether they already have an account.
+	if body.Phone == demoPhone || body.Code == demoOTP {
 		body.CreateIfMissing = true
 	}
 

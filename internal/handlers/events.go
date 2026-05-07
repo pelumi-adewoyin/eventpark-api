@@ -238,18 +238,6 @@ func (h *EventsHandler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Public/ticketed events require KYC tier 1+
-	if visibility == "public" || ticketPrice > 0 {
-		var kycTier string
-		_ = h.db.QueryRow(r.Context(),
-			`SELECT kyc_tier FROM users WHERE id = $1`, u.ID,
-		).Scan(&kycTier)
-		if kycTier == "0" {
-			writeErr(w, http.StatusForbidden, "kyc_required:tier_1")
-			return
-		}
-	}
-
 	_, err = h.db.Exec(r.Context(),
 		`UPDATE events SET status = 'published', updated_at = NOW() WHERE id = $1 AND owner_id = $2`,
 		id, u.ID,
