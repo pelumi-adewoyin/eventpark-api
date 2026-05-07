@@ -5,6 +5,7 @@ import (
 
 	"github.com/eventpark/api/internal/middleware"
 	"github.com/eventpark/api/internal/models"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -120,18 +121,26 @@ func (h *UsersHandler) CompleteOnboarding(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// For corporate users, create an organisation
+	// For corporate users, create an organisation and add the owner as a member
 	if body.Role == "corporate" && body.OrgName != nil {
-		_, err = tx.Exec(r.Context(),
+		var orgID uuid.UUID
+		err = tx.QueryRow(r.Context(),
 			`INSERT INTO organisations (name, rc_number, industry, owner_id)
 			 VALUES ($1, $2, $3, $4)
-			 ON CONFLICT DO NOTHING`,
+			 ON CONFLICT DO NOTHING
+			 RETURNING id`,
 			body.OrgName, body.RCNumber, body.Industry, u.ID,
-		)
+		).Scan(&orgID)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to create organisation")
 			return
 		}
+		// Add owner as an active org member so GET /orgs/me can find this org
+		_, _ = tx.Exec(r.Context(),
+			`INSERT INTO org_members (org_id, user_id, role, role_enum, active)
+			 VALUES ($1, $2, 'owner', 'owner', true) ON CONFLICT DO NOTHING`,
+			orgID, u.ID,
+		)
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
