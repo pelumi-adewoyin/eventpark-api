@@ -34,6 +34,9 @@ func NewAuthHandler(db *pgxpool.Pool, jwtSecret, jwtRefreshSecret, termiiKey, en
 	}
 }
 
+const demoPhone = "+2340000000000"
+const demoOTP = "000000"
+
 // POST /auth/request-otp
 func (h *AuthHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -41,6 +44,21 @@ func (h *AuthHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decode(r, &body); err != nil || body.Phone == "" {
 		writeErr(w, http.StatusBadRequest, "phone is required")
+		return
+	}
+
+	// Demo account: always succeeds with fixed OTP, no SMS sent
+	if body.Phone == demoPhone {
+		expires := time.Now().Add(10 * time.Minute)
+		_, _ = h.db.Exec(r.Context(),
+			`INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)`,
+			body.Phone, demoOTP, expires,
+		)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"message":    "OTP sent to your phone",
+			"expires_in": 600,
+			"demo":       true,
+		})
 		return
 	}
 
