@@ -95,26 +95,46 @@ func RunMigrations(pool *pgxpool.Pool, migrationsFS fs.FS) error {
 
 		log.Printf("applying migration: %s", filename)
 
-		// Run inside a transaction
-		tx, err := pool.Begin(ctx)
+		// pgx v5 uses the extended query protocol by default, which does NOT
+		// support multi-statement SQL strings. We drop down to the underlying
+		// pgconn simple-query protocol so the whole migration file is sent as
+		// a single simple-query message (PostgreSQL executes each statement
+		// in order within the same server session).
+		acquired, err := pool.Acquire(ctx)
 		if err != nil {
-			return fmt.Errorf("begin tx for %s: %w", filename, err)
+			return fmt.Errorf("acquire conn for %s: %w", filename, err)
 		}
 
-		if _, err := tx.Exec(ctx, string(content)); err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("execute %s: %w", filename, err)
-		}
+		pgConn := acquired.Conn().PgConn()
 
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO schema_migrations (filename) VALUES ($1)`, filename,
-		); err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("record %s: %w", filename, err)
-		}
+		runErr := func() error {
+			if _, err := pgConn.Exec(ctx, "BEGIN").ReadAll(); err != nil {
+				return fmt.Errorf("begin tx for %s: %w", filename, err)
+			}
 
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("commit %s: %w", filename, err)
+			// Execute entire migration file via simple-query protocol.
+			if _, err := pgConn.Exec(ctx, string(content)).ReadAll(); err != nil {
+				_, _ = pgConn.Exec(ctx, "ROLLBACK").ReadAll()
+				return fmt.Errorf("execute %s: %w", filename, err)
+			}
+
+			// Record the migration (single-statement — safe in simple protocol).
+			recordSQL := "INSERT INTO schema_migrations (filename) VALUES ('" +
+				strings.ReplaceAll(filename, "'", "''") + "')"
+			if _, err := pgConn.Exec(ctx, recordSQL).ReadAll(); err != nil {
+				_, _ = pgConn.Exec(ctx, "ROLLBACK").ReadAll()
+				return fmt.Errorf("record %s: %w", filename, err)
+			}
+
+			if _, err := pgConn.Exec(ctx, "COMMIT").ReadAll(); err != nil {
+				return fmt.Errorf("commit %s: %w", filename, err)
+			}
+			return nil
+		}()
+
+		acquired.Release()
+		if runErr != nil {
+			return runErr
 		}
 
 		log.Printf("migration applied OK: %s", filename)
