@@ -3,8 +3,11 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/eventpark/api/internal/models"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -90,6 +93,84 @@ func (h *DiscoverHandler) Events(w http.ResponseWriter, r *http.Request) {
 		"page":   page,
 		"limit":  limit,
 	})
+}
+
+// GET /discover/events/:id — public single event
+func (h *DiscoverHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	var e models.Event
+	err = h.db.QueryRow(r.Context(),
+		`SELECT e.id, e.owner_id, e.title, e.description,
+		   e.event_type::text, e.visibility::text, e.status::text,
+		   e.start_at, e.end_at, e.venue_name, e.venue_address, e.venue_city, e.venue_state,
+		   e.cover_url, e.max_guests, e.budget_total, e.ticket_price, e.approval_status::text,
+		   e.created_at, e.updated_at,
+		   COUNT(g.id) FILTER (WHERE g.status::text = 'rsvp_yes') AS guest_count,
+		   COUNT(g.id) FILTER (WHERE g.status::text = 'checked_in') AS checked_in
+		 FROM events e
+		 LEFT JOIN guests g ON g.event_id = e.id
+		 WHERE e.id = $1 AND e.status::text = 'published'
+		 GROUP BY e.id`, id,
+	).Scan(
+		&e.ID, &e.OwnerID, &e.Title, &e.Description, &e.EventType,
+		&e.Visibility, &e.Status, &e.StartAt, &e.EndAt,
+		&e.VenueName, &e.VenueAddress, &e.VenueCity, &e.VenueState,
+		&e.CoverURL, &e.MaxGuests, &e.BudgetTotal, &e.TicketPrice,
+		&e.ApprovalStatus, &e.CreatedAt, &e.UpdatedAt,
+		&e.GuestCount, &e.CheckedIn,
+	)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "event not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, e)
+}
+
+// GET /discover/events/:id/tickets — public ticket tiers
+func (h *DiscoverHandler) GetEventTickets(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(),
+		`SELECT id, event_id, name, description, price, quantity, quantity_sold, kind, created_at, updated_at
+		 FROM ticket_tiers WHERE event_id = $1 ORDER BY created_at ASC`, id,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to fetch ticket tiers")
+		return
+	}
+	defer rows.Close()
+
+	type TicketTier struct {
+		ID           uuid.UUID `json:"id"`
+		EventID      uuid.UUID `json:"event_id"`
+		Name         string    `json:"name"`
+		Description  *string   `json:"description,omitempty"`
+		Price        int64     `json:"price"`
+		Quantity     int       `json:"quantity"`
+		QuantitySold int       `json:"quantity_sold"`
+		Kind         string    `json:"kind"`
+		CreatedAt    time.Time `json:"created_at"`
+		UpdatedAt    time.Time `json:"updated_at"`
+	}
+
+	tiers := []TicketTier{}
+	for rows.Next() {
+		var t TicketTier
+		if err := rows.Scan(&t.ID, &t.EventID, &t.Name, &t.Description, &t.Price,
+			&t.Quantity, &t.QuantitySold, &t.Kind, &t.CreatedAt, &t.UpdatedAt); err == nil {
+			tiers = append(tiers, t)
+		}
+	}
+	writeJSON(w, http.StatusOK, tiers)
 }
 
 // GET /discover/vendors?category=catering&city=Lagos

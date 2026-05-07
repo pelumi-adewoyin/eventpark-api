@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/eventpark/api/internal/middleware"
 	"github.com/eventpark/api/internal/models"
@@ -282,4 +283,124 @@ func (h *EventsHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "event cancelled"})
+}
+
+// ── Ticket Tiers ──────────────────────────────────────────────────────────────
+
+type TicketTier struct {
+	ID           uuid.UUID `json:"id"`
+	EventID      uuid.UUID `json:"event_id"`
+	Name         string    `json:"name"`
+	Description  *string   `json:"description,omitempty"`
+	Price        int64     `json:"price"`
+	Quantity     int       `json:"quantity"`
+	QuantitySold int       `json:"quantity_sold"`
+	Kind         string    `json:"kind"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// GET /events/:id/tickets
+func (h *EventsHandler) ListTicketTiers(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(),
+		`SELECT id, event_id, name, description, price, quantity, quantity_sold, kind, created_at, updated_at
+		 FROM ticket_tiers WHERE event_id = $1 ORDER BY created_at ASC`, id,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to fetch ticket tiers")
+		return
+	}
+	defer rows.Close()
+
+	tiers := []TicketTier{}
+	for rows.Next() {
+		var t TicketTier
+		if err := rows.Scan(&t.ID, &t.EventID, &t.Name, &t.Description, &t.Price,
+			&t.Quantity, &t.QuantitySold, &t.Kind, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			continue
+		}
+		tiers = append(tiers, t)
+	}
+	writeJSON(w, http.StatusOK, tiers)
+}
+
+// POST /events/:id/tickets — bulk upsert (replaces all tiers for this event)
+func (h *EventsHandler) SaveTicketTiers(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r)
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil || u == nil {
+		writeErr(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	// Verify ownership
+	var exists bool
+	if err := h.db.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM events WHERE id = $1 AND owner_id = $2)`, id, u.ID,
+	).Scan(&exists); err != nil || !exists {
+		writeErr(w, http.StatusNotFound, "event not found")
+		return
+	}
+
+	var body struct {
+		Tiers []struct {
+			Name        string  `json:"name"`
+			Description *string `json:"description"`
+			Price       int64   `json:"price"`
+			Quantity    int     `json:"quantity"`
+			Kind        string  `json:"kind"` // paid | free | donation
+		} `json:"tiers"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "transaction error")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	// Delete old tiers and insert fresh ones
+	if _, err := tx.Exec(r.Context(), `DELETE FROM ticket_tiers WHERE event_id = $1`, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to clear tiers")
+		return
+	}
+
+	for _, t := range body.Tiers {
+		if t.Name == "" {
+			continue
+		}
+		kind := t.Kind
+		if kind == "" {
+			if t.Price == 0 {
+				kind = "free"
+			} else {
+				kind = "paid"
+			}
+		}
+		if _, err := tx.Exec(r.Context(),
+			`INSERT INTO ticket_tiers (event_id, name, description, price, quantity, kind)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			id, t.Name, t.Description, t.Price, t.Quantity, kind,
+		); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to save tier")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "commit failed")
+		return
+	}
+
+	h.ListTicketTiers(w, r)
 }

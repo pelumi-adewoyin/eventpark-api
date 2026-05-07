@@ -87,6 +87,8 @@ func main() {
 
 	// ── Discover (public) ──────────────────────────────────────────────────────
 	r.Get("/discover/events", discoverH.Events)
+	r.Get("/discover/events/{id}", discoverH.GetEvent)
+	r.Get("/discover/events/{id}/tickets", discoverH.GetEventTickets)
 	r.Get("/discover/vendors", discoverH.Vendors)
 	r.Get("/discover/products", discoverH.Products)
 
@@ -116,6 +118,8 @@ func main() {
 		r.Patch("/events/{id}", eventsH.UpdateEvent)
 		r.Delete("/events/{id}", eventsH.DeleteEvent)
 		r.Post("/events/{id}/publish", eventsH.PublishEvent)
+		r.Get("/events/{id}/tickets", eventsH.ListTicketTiers)
+		r.Post("/events/{id}/tickets", eventsH.SaveTicketTiers)
 
 		// ── Budget Lines ──────────────────────────────────────────────────────
 		r.Get("/events/{id}/budget", budgetH.ListBudgetLines)
