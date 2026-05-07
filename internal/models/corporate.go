@@ -362,3 +362,42 @@ type Notification struct {
 	Read      bool      `json:"read"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// ─── Personal Budget ──────────────────────────────────────────────────────────
+
+type PersonalBudget struct {
+	ID          string           `json:"id"`
+	UserID      string           `json:"user_id"`
+	Name        string           `json:"name"`
+	Scope       string           `json:"scope"`
+	EventID     *string          `json:"event_id"`
+	TotalNGN    int64            `json:"total_ngn"`
+	PeriodStart *string          `json:"period_start"`
+	PeriodEnd   *string          `json:"period_end"`
+	AlertAt70   bool             `json:"alert_at_70"`
+	AlertAt90   bool             `json:"alert_at_90"`
+	Categories  []BudgetCategory `json:"categories"`
+	TotalSpent  int64            `json:"total_spent"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+}
+
+type BudgetCategory struct {
+	ID           string `json:"id"`
+	BudgetID     string `json:"budget_id"`
+	Name         string `json:"name"`
+	AllocatedNGN int64  `json:"allocated_ngn"`
+	SpentNGN     int64  `json:"spent_ngn"`
+}
+
+type BudgetExpense struct {
+	ID            string    `json:"id"`
+	BudgetID      string    `json:"budget_id"`
+	CategoryID    *string   `json:"category_id"`
+	Description   string    `json:"description"`
+	AmountNGN     int64     `json:"amount_ngn"`
+	ExpenseDate   string    `json:"expense_date"`
+	PaymentMethod string    `json:"payment_method"`
+	Notes         *string   `json:"notes"`
+	CreatedAt     time.Time `json:"created_at"`
+}

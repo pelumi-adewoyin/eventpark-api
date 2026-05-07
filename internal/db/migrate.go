@@ -146,9 +146,10 @@ func seedExistingMigrations(ctx context.Context, pool *pgxpool.Pool, files []str
 
 	// Sentinel table for each migration file (first unique table it creates).
 	sentinels := map[string]string{
-		"001_init.sql":          "users",
-		"002_phase2_gaps.sql":   "event_budget_lines",
+		"001_init.sql":             "users",
+		"002_phase2_gaps.sql":      "event_budget_lines",
 		"003_corporate_phase4.sql": "departments",
+		"004_budgets.sql":          "personal_budgets",
 	}
 
 	for _, filename := range files {

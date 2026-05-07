@@ -51,6 +51,7 @@ func main() {
 	procH    := handlers.NewProcurementHandler(pool)
 	corpWalH := handlers.NewCorpWalletHandler(pool)
 	auditH   := handlers.NewAuditHandler(pool)
+	budgetPH := handlers.NewPersonalBudgetHandler(pool)
 
 	r := chi.NewRouter()
 
@@ -134,6 +135,14 @@ func main() {
 		r.Get("/kyc/status", kycH.GetStatus)
 		r.Post("/kyc/verify-bvn", kycH.VerifyBVN)
 		r.Post("/kyc/verify-nin", kycH.VerifyNIN)
+
+		// ── Personal Budgets ────────────────────────────────────────────
+		r.Get("/budgets", budgetPH.List)
+		r.Post("/budgets", budgetPH.Create)
+		r.Delete("/budgets/{id}", budgetPH.Delete)
+		r.Get("/budgets/{id}/expenses", budgetPH.ListExpenses)
+		r.Post("/budgets/{id}/expenses", budgetPH.AddExpense)
+		r.Delete("/budgets/{id}/expenses/{expenseId}", budgetPH.DeleteExpense)
 
 		// ── Vendors (marketplace) ─────────────────────────────────────────────
 		r.Post("/vendors", vendorsH.CreateVendor)
