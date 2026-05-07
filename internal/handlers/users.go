@@ -29,16 +29,19 @@ func (h *UsersHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(r.Context(),
 		`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
 		        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
-		        m.org_id, o.name
+		        m.org_id, o.name,
+		        v.id, v.vendor_type, v.business_name, v.verification_status, v.verification_tier
 		 FROM users u
 		 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
 		 LEFT JOIN orgs o ON o.id = m.org_id
+		 LEFT JOIN vendors v ON v.user_id = u.id
 		 WHERE u.id = $1
 		 LIMIT 1`, u.ID,
 	).Scan(
 		&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
 		&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
 		&user.OrgID, &user.OrgName,
+		&user.VendorID, &user.VendorType, &user.BusinessName, &user.VerificationStatus, &user.VerificationTier,
 	)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "user not found")
@@ -104,9 +107,9 @@ func (h *UsersHandler) CompleteOnboarding(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	validRoles := map[string]bool{"diy": true, "planner": true, "corporate": true}
+	validRoles := map[string]bool{"diy": true, "planner": true, "corporate": true, "vendor": true}
 	if !validRoles[body.Role] {
-		writeErr(w, http.StatusBadRequest, "role must be diy, planner, or corporate")
+		writeErr(w, http.StatusBadRequest, "role must be diy, planner, corporate, or vendor")
 		return
 	}
 

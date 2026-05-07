@@ -32,28 +32,56 @@ func (h *VendorsHandler) CreateVendor(w http.ResponseWriter, r *http.Request) {
 		Bio          *string `json:"bio"`
 		City         *string `json:"city"`
 		State        *string `json:"state"`
+		// Phase 6 fields
+		VendorType   string  `json:"vendor_type"`    // 'service' | 'product'
+		IsRegistered bool    `json:"is_registered"`
+		CACRCNumber  *string `json:"cac_rc_number"`
+		Address      *string `json:"address"`
+		PostalCode   *string `json:"postal_code"`
 	}
 	if err := decode(r, &body); err != nil || body.BusinessName == "" || body.Category == "" {
 		writeErr(w, http.StatusBadRequest, "business_name and category are required")
 		return
 	}
+	if body.VendorType != "service" && body.VendorType != "product" {
+		body.VendorType = "service" // default
+	}
 
 	var vendor models.Vendor
 	err := h.db.QueryRow(r.Context(),
-		`INSERT INTO vendors (user_id, business_name, category, bio, city, state)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO vendors (user_id, business_name, category, bio, city, state, vendor_type, is_registered, cac_rc_number, address, postal_code)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 ON CONFLICT (user_id) DO UPDATE SET
-		   business_name = EXCLUDED.business_name,
-		   category = EXCLUDED.category,
-		   bio = COALESCE(EXCLUDED.bio, vendors.bio),
-		   city = COALESCE(EXCLUDED.city, vendors.city),
-		   state = COALESCE(EXCLUDED.state, vendors.state)
-		 RETURNING id, user_id, business_name, category, bio, city, state, avatar_url, cover_url, rating, review_count, verified, created_at`,
+		   business_name  = EXCLUDED.business_name,
+		   category       = EXCLUDED.category,
+		   bio            = COALESCE(EXCLUDED.bio, vendors.bio),
+		   city           = COALESCE(EXCLUDED.city, vendors.city),
+		   state          = COALESCE(EXCLUDED.state, vendors.state),
+		   vendor_type    = EXCLUDED.vendor_type,
+		   is_registered  = EXCLUDED.is_registered,
+		   cac_rc_number  = COALESCE(EXCLUDED.cac_rc_number, vendors.cac_rc_number),
+		   address        = COALESCE(EXCLUDED.address, vendors.address),
+		   postal_code    = COALESCE(EXCLUDED.postal_code, vendors.postal_code),
+		   updated_at     = NOW()
+		 RETURNING id, user_id, business_name, category, bio, city, state, avatar_url, cover_url,
+		           rating, review_count, verified,
+		           vendor_type, verification_status, verification_tier, is_registered,
+		           cac_rc_number, address, postal_code,
+		           tagline, highlight_1, highlight_2, highlight_3,
+		           years_experience, events_completed, website, instagram, twitter, whatsapp,
+		           created_at, updated_at`,
 		u.ID, body.BusinessName, body.Category, body.Bio, body.City, body.State,
+		body.VendorType, body.IsRegistered, body.CACRCNumber, body.Address, body.PostalCode,
 	).Scan(
 		&vendor.ID, &vendor.UserID, &vendor.BusinessName, &vendor.Category,
 		&vendor.Bio, &vendor.City, &vendor.State, &vendor.AvatarURL, &vendor.CoverURL,
-		&vendor.Rating, &vendor.ReviewCount, &vendor.Verified, &vendor.CreatedAt,
+		&vendor.Rating, &vendor.ReviewCount, &vendor.Verified,
+		&vendor.VendorType, &vendor.VerificationStatus, &vendor.VerificationTier, &vendor.IsRegistered,
+		&vendor.CACRCNumber, &vendor.Address, &vendor.PostalCode,
+		&vendor.Tagline, &vendor.Highlight1, &vendor.Highlight2, &vendor.Highlight3,
+		&vendor.YearsExperience, &vendor.EventsCompleted, &vendor.Website,
+		&vendor.Instagram, &vendor.Twitter, &vendor.WhatsApp,
+		&vendor.CreatedAt, &vendor.UpdatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create vendor profile")

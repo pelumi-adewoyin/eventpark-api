@@ -19,6 +19,12 @@ type User struct {
 	OnboardingDone bool       `json:"onboarding_done"`
 	OrgID          *uuid.UUID `json:"org_id,omitempty"`
 	OrgName        *string    `json:"org_name,omitempty"`
+	// Vendor fields (populated when role='vendor')
+	VendorID           *uuid.UUID `json:"vendor_id,omitempty"`
+	VendorType         *string    `json:"vendor_type,omitempty"`
+	BusinessName       *string    `json:"business_name,omitempty"`
+	VerificationStatus *string    `json:"verification_status,omitempty"`
+	VerificationTier   *int       `json:"verification_tier,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
@@ -71,33 +77,129 @@ type Guest struct {
 // ─── VENDOR ───────────────────────────────────────────────────────────────────
 
 type Vendor struct {
-	ID           uuid.UUID `json:"id"`
-	UserID       uuid.UUID `json:"user_id"`
-	BusinessName string    `json:"business_name"`
-	Category     string    `json:"category"`
-	Bio          *string   `json:"bio,omitempty"`
-	City         *string   `json:"city,omitempty"`
-	State        *string   `json:"state,omitempty"`
-	AvatarURL    *string   `json:"avatar_url,omitempty"`
-	CoverURL     *string   `json:"cover_url,omitempty"`
-	Rating       float64   `json:"rating"`
-	ReviewCount  int       `json:"review_count"`
-	Verified     bool      `json:"verified"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID                 uuid.UUID `json:"id"`
+	UserID             uuid.UUID `json:"user_id"`
+	BusinessName       string    `json:"business_name"`
+	Category           string    `json:"category"`
+	Bio                *string   `json:"bio,omitempty"`
+	City               *string   `json:"city,omitempty"`
+	State              *string   `json:"state,omitempty"`
+	AvatarURL          *string   `json:"avatar_url,omitempty"`
+	CoverURL           *string   `json:"cover_url,omitempty"`
+	Rating             float64   `json:"rating"`
+	ReviewCount        int       `json:"review_count"`
+	Verified           bool      `json:"verified"`
+	// Phase 6 extended fields
+	VendorType         string    `json:"vendor_type"`
+	VerificationStatus string    `json:"verification_status"`
+	VerificationTier   int       `json:"verification_tier"`
+	IsRegistered       bool      `json:"is_registered"`
+	CACRCNumber        *string   `json:"cac_rc_number,omitempty"`
+	Address            *string   `json:"address,omitempty"`
+	PostalCode         *string   `json:"postal_code,omitempty"`
+	Tagline            *string   `json:"tagline,omitempty"`
+	Highlight1         *string   `json:"highlight_1,omitempty"`
+	Highlight2         *string   `json:"highlight_2,omitempty"`
+	Highlight3         *string   `json:"highlight_3,omitempty"`
+	YearsExperience    *int      `json:"years_experience,omitempty"`
+	EventsCompleted    *int      `json:"events_completed,omitempty"`
+	Website            *string   `json:"website,omitempty"`
+	Instagram          *string   `json:"instagram,omitempty"`
+	Twitter            *string   `json:"twitter,omitempty"`
+	WhatsApp           *string   `json:"whatsapp,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 	// Enriched
-	Services  []VendorService  `json:"services,omitempty"`
+	Services  []VendorService   `json:"services,omitempty"`
 	Portfolio []VendorPortfolio `json:"portfolio,omitempty"`
 }
 
 type VendorService struct {
-	ID          uuid.UUID `json:"id"`
-	VendorID    uuid.UUID `json:"vendor_id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description,omitempty"`
-	PriceFrom   int64     `json:"price_from"`
-	PriceTo     *int64    `json:"price_to,omitempty"`
-	Unit        *string   `json:"unit,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID              uuid.UUID `json:"id"`
+	VendorID        uuid.UUID `json:"vendor_id"`
+	Name            string    `json:"name"`
+	Description     *string   `json:"description,omitempty"`
+	PriceFrom       int64     `json:"price_from"`
+	PriceTo         *int64    `json:"price_to,omitempty"`
+	Unit            *string   `json:"unit,omitempty"`
+	// Phase 6 extended fields
+	PricingModel    string    `json:"pricing_model"`
+	IsActive        bool      `json:"is_active"`
+	MinNoticeHours  int       `json:"min_notice_hours"`
+	MaxAdvanceDays  int       `json:"max_advance_days"`
+	ResponseTimeHrs int       `json:"response_time_hrs"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// ─── ORDER (product vendor flow) ──────────────────────────────────────────────
+
+type Order struct {
+	ID              uuid.UUID  `json:"id"`
+	VendorID        uuid.UUID  `json:"vendor_id"`
+	CustomerID      uuid.UUID  `json:"customer_id"`
+	Status          string     `json:"status"`
+	TotalAmount     int64      `json:"total_amount"`
+	EscrowAmount    int64      `json:"escrow_amount"`
+	EscrowReleased  bool       `json:"escrow_released"`
+	DeliveryAddress *string    `json:"delivery_address,omitempty"`
+	DeliveryZone    *string    `json:"delivery_zone,omitempty"`
+	Notes           *string    `json:"notes,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	// Enriched
+	Items           []OrderItem `json:"items,omitempty"`
+	CustomerName    *string     `json:"customer_name,omitempty"`
+	CustomerPhone   *string     `json:"customer_phone,omitempty"`
+}
+
+type OrderItem struct {
+	ID        uuid.UUID  `json:"id"`
+	OrderID   uuid.UUID  `json:"order_id"`
+	ProductID *uuid.UUID `json:"product_id,omitempty"`
+	Name      string     `json:"name"`
+	Qty       int        `json:"qty"`
+	UnitPrice int64      `json:"unit_price"`
+}
+
+// ─── VENDOR AVAILABILITY ──────────────────────────────────────────────────────
+
+type VendorAvailability struct {
+	ID           uuid.UUID   `json:"id"`
+	VendorID     uuid.UUID   `json:"vendor_id"`
+	WorkingDays  []int       `json:"working_days"`
+	BlockedDates []time.Time `json:"blocked_dates"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+}
+
+// ─── VENDOR BANK ACCOUNT ──────────────────────────────────────────────────────
+
+type VendorBankAccount struct {
+	ID            uuid.UUID `json:"id"`
+	VendorID      uuid.UUID `json:"vendor_id"`
+	BankName      string    `json:"bank_name"`
+	AccountNumber string    `json:"account_number"`
+	AccountName   string    `json:"account_name"`
+	IsDefault     bool      `json:"is_default"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// ─── VENDOR VERIFICATION SUBMISSION ──────────────────────────────────────────
+
+type VendorVerification struct {
+	ID            uuid.UUID  `json:"id"`
+	VendorID      uuid.UUID  `json:"vendor_id"`
+	TargetTier    int        `json:"target_tier"`
+	CACRCNumber   *string    `json:"cac_rc_number,omitempty"`
+	CACDocURL     *string    `json:"cac_doc_url,omitempty"`
+	IDType        *string    `json:"id_type,omitempty"`
+	IDDocURL      *string    `json:"id_doc_url,omitempty"`
+	BankStmtURL   *string    `json:"bank_stmt_url,omitempty"`
+	Notes         *string    `json:"notes,omitempty"`
+	Status        string     `json:"status"`
+	ReviewerNotes *string    `json:"reviewer_notes,omitempty"`
+	SubmittedAt   time.Time  `json:"submitted_at"`
+	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
 }
 
 type VendorPortfolio struct {
@@ -165,14 +267,19 @@ type KYCVerification struct {
 // ─── PRODUCT ──────────────────────────────────────────────────────────────────
 
 type Product struct {
-	ID          uuid.UUID `json:"id"`
-	VendorID    uuid.UUID `json:"vendor_id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description,omitempty"`
-	Price       int64     `json:"price"`
-	Category    *string   `json:"category,omitempty"`
-	ImageURL    *string   `json:"image_url,omitempty"`
-	Stock       *int      `json:"stock,omitempty"`
-	Active      bool      `json:"active"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                 uuid.UUID `json:"id"`
+	VendorID           uuid.UUID `json:"vendor_id"`
+	Name               string    `json:"name"`
+	Description        *string   `json:"description,omitempty"`
+	Price              int64     `json:"price"`
+	Category           *string   `json:"category,omitempty"`
+	ImageURL           *string   `json:"image_url,omitempty"`
+	Stock              *int      `json:"stock,omitempty"`
+	Active             bool      `json:"active"`
+	// Phase 6 extended fields
+	MinOrderQty        int       `json:"min_order_qty"`
+	LeadTimeDays       int       `json:"lead_time_days"`
+	FreeDeliveryAbove  *int64    `json:"free_delivery_above,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }

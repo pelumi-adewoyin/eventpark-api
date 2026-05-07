@@ -56,6 +56,9 @@ func main() {
 	bookingExtH := handlers.NewBookingExtHandler(pool)
 	wishlistH   := handlers.NewWishlistHandler(pool)
 
+	// Phase 6 — Vendor dashboard handler
+	vendorDashH := handlers.NewVendorDashboardHandler(pool)
+
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -164,6 +167,53 @@ func main() {
 		r.Post("/bookmarks", bookmarkH.Create)
 		r.Get("/bookmarks", bookmarkH.List)
 		r.Delete("/bookmarks/{type}/{id}", bookmarkH.Delete)
+
+		// ── Vendor dashboard (Phase 6) ────────────────────────────────────────
+		r.Route("/vendor", func(r chi.Router) {
+			// Profile
+			r.Get("/me", vendorDashH.GetMe)
+			r.Patch("/me", vendorDashH.UpdateMe)
+
+			// Products (product vendor)
+			r.Get("/products", vendorDashH.ListProducts)
+			r.Post("/products", vendorDashH.CreateProduct)
+			r.Patch("/products/{id}", vendorDashH.UpdateProduct)
+			r.Patch("/products/{id}/toggle", vendorDashH.ToggleProduct)
+			r.Delete("/products/{id}", vendorDashH.DeleteProduct)
+
+			// Services (service vendor)
+			r.Get("/services", vendorDashH.ListServices)
+			r.Post("/services", vendorDashH.CreateService)
+			r.Patch("/services/{id}", vendorDashH.UpdateService)
+			r.Patch("/services/{id}/toggle", vendorDashH.ToggleService)
+			r.Delete("/services/{id}", vendorDashH.DeleteService)
+
+			// Orders (product vendor)
+			r.Get("/orders", vendorDashH.ListOrders)
+			r.Patch("/orders/{id}/status", vendorDashH.UpdateOrderStatus)
+
+			// Bookings (service vendor)
+			r.Get("/bookings", vendorDashH.ListBookings)
+			r.Patch("/bookings/{id}/accept", vendorDashH.AcceptBooking)
+			r.Patch("/bookings/{id}/decline", vendorDashH.DeclineBooking)
+
+			// Wallet & transactions
+			r.Get("/wallet", vendorDashH.GetWallet)
+			r.Get("/transactions", vendorDashH.ListTransactions)
+			r.Post("/withdraw", vendorDashH.Withdraw)
+
+			// Bank accounts
+			r.Get("/bank-accounts", vendorDashH.ListBankAccounts)
+			r.Post("/bank-accounts", vendorDashH.AddBankAccount)
+
+			// Verification
+			r.Get("/verification", vendorDashH.GetVerification)
+			r.Post("/verification/apply", vendorDashH.ApplyVerification)
+
+			// Availability (calendar)
+			r.Get("/availability", vendorDashH.GetAvailability)
+			r.Patch("/availability", vendorDashH.UpdateAvailability)
+		})
 
 		// ── Wishlists ─────────────────────────────────────────────────────────
 		r.Get("/wishlists", wishlistH.List)
