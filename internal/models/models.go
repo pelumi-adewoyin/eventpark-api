@@ -118,6 +118,7 @@ type VendorService struct {
 	ID              uuid.UUID `json:"id"`
 	VendorID        uuid.UUID `json:"vendor_id"`
 	Name            string    `json:"name"`
+	Category        *string   `json:"category,omitempty"`
 	Description     *string   `json:"description,omitempty"`
 	PriceFrom       int64     `json:"price_from"`
 	PriceTo         *int64    `json:"price_to,omitempty"`
@@ -214,7 +215,7 @@ type VendorPortfolio struct {
 
 type Booking struct {
 	ID             uuid.UUID  `json:"id"`
-	EventID        uuid.UUID  `json:"event_id"`
+	EventID        *uuid.UUID `json:"event_id,omitempty"` // nullable — direct bookings from VendorDetail have no event
 	VendorID       uuid.UUID  `json:"vendor_id"`
 	ServiceID      *uuid.UUID `json:"service_id,omitempty"`
 	ClientID       uuid.UUID  `json:"client_id"`

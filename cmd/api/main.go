@@ -168,6 +168,9 @@ func main() {
 		r.Post("/bookings/{id}/quote/respond", bookingExtH.RespondQuote)
 		r.Post("/bookings/{id}/pay", bookingExtH.Pay)
 
+		// ── Product Orders (customer → product vendor) ────────────────────────
+		r.Post("/orders", vendorDashH.PlaceOrder)
+
 		// ── Bookmarks ─────────────────────────────────────────────────────────
 		r.Post("/bookmarks", bookmarkH.Create)
 		r.Get("/bookmarks", bookmarkH.List)

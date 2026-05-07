@@ -271,15 +271,21 @@ func (h *DiscoverHandler) GetVendorDetail(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Fetch services
+	// Fetch active services
 	svcRows, _ := h.db.Query(r.Context(),
-		`SELECT id, vendor_id, name, description, price_from, price_to, unit, created_at
-		 FROM vendor_services WHERE vendor_id = $1`, id,
+		`SELECT id, vendor_id, name, category, description, price_from, price_to, unit,
+		        pricing_model, is_active, min_notice_hours, max_advance_days, response_time_hrs,
+		        created_at, updated_at
+		 FROM vendor_services WHERE vendor_id = $1 AND is_active = true ORDER BY created_at DESC`, id,
 	)
 	defer svcRows.Close()
 	for svcRows.Next() {
 		var s models.VendorService
-		if err := svcRows.Scan(&s.ID, &s.VendorID, &s.Name, &s.Description, &s.PriceFrom, &s.PriceTo, &s.Unit, &s.CreatedAt); err == nil {
+		if err := svcRows.Scan(
+			&s.ID, &s.VendorID, &s.Name, &s.Category, &s.Description, &s.PriceFrom, &s.PriceTo, &s.Unit,
+			&s.PricingModel, &s.IsActive, &s.MinNoticeHours, &s.MaxAdvanceDays, &s.ResponseTimeHrs,
+			&s.CreatedAt, &s.UpdatedAt,
+		); err == nil {
 			v.Services = append(v.Services, s)
 		}
 	}

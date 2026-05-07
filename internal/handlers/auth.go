@@ -166,20 +166,23 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// SELECT the user (works for both new and existing accounts).
-	// Deliberately simple — no org join here to avoid any schema issues;
-	// GetMe fills in org/vendor details after login.
+	// SELECT the user + vendor fields so AuthContext gets the full picture immediately.
+	// Without the vendor join, vendor_type is null after login and AuthContext
+	// (loginCalledRef) blocks the subsequent /users/me from correcting it.
 	var user models.User
 	fetchErr := h.db.QueryRow(r.Context(),
-		`SELECT id, phone, email, full_name, avatar_url,
-		        role::text, COALESCE(kyc_tier::text, '0'), onboarding_done, created_at, updated_at
-		 FROM users
-		 WHERE phone = $1
+		`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url,
+		        u.role::text, COALESCE(u.kyc_tier::text, '0'), u.onboarding_done, u.created_at, u.updated_at,
+		        v.id, v.vendor_type, v.business_name, v.verification_status, v.verification_tier
+		 FROM users u
+		 LEFT JOIN vendors v ON v.user_id = u.id
+		 WHERE u.phone = $1
 		 LIMIT 1`,
 		body.Phone,
 	).Scan(
 		&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
 		&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
+		&user.VendorID, &user.VendorType, &user.BusinessName, &user.VerificationStatus, &user.VerificationTier,
 	)
 	if fetchErr != nil {
 		log.Printf("VerifyOTP: user select failed for phone=%s create_if_missing=%v: %v",

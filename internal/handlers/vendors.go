@@ -192,7 +192,7 @@ func (h *VendorsHandler) AddService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, svc)
 }
 
-// POST /bookings — request a vendor booking
+// POST /bookings — request a vendor booking (quote request — no upfront payment)
 func (h *VendorsHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	u := middleware.GetUser(r)
 	if u == nil {
@@ -201,50 +201,24 @@ func (h *VendorsHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		EventID     uuid.UUID  `json:"event_id"`
+		EventID     *uuid.UUID `json:"event_id"`     // optional — direct bookings don't need an event
 		VendorID    uuid.UUID  `json:"vendor_id"`
 		ServiceID   *uuid.UUID `json:"service_id"`
-		TotalAmount int64      `json:"total_amount"` // kobo
+		TotalAmount int64      `json:"total_amount"` // estimated budget in kobo, can be 0
 		Notes       *string    `json:"notes"`
-		EventDate   *string    `json:"event_date"`
+		EventDate   *string    `json:"event_date"` // "YYYY-MM-DD"
 	}
-	if err := decode(r, &body); err != nil || body.TotalAmount <= 0 {
-		writeErr(w, http.StatusBadRequest, "event_id, vendor_id and total_amount required")
-		return
-	}
-
-	// 50% escrow hold
-	escrowAmount := body.TotalAmount / 2
-
-	// Deduct escrow from wallet
-	var walletID uuid.UUID
-	var balance int64
-	err := h.db.QueryRow(r.Context(),
-		`SELECT id, balance FROM wallets WHERE user_id = $1`, u.ID,
-	).Scan(&walletID, &balance)
-	if err != nil || balance < escrowAmount {
-		writeErr(w, http.StatusBadRequest, "insufficient wallet balance for escrow")
-		return
-	}
-
-	tx, _ := h.db.Begin(r.Context())
-	defer tx.Rollback(r.Context())
-
-	_, err = tx.Exec(r.Context(),
-		`UPDATE wallets SET balance = balance - $2, escrow_held = escrow_held + $2, updated_at = NOW() WHERE id = $1`,
-		walletID, escrowAmount,
-	)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "escrow deduction failed")
+	if err := decode(r, &body); err != nil || body.VendorID == uuid.Nil {
+		writeErr(w, http.StatusBadRequest, "vendor_id is required")
 		return
 	}
 
 	var booking models.Booking
-	err = tx.QueryRow(r.Context(),
+	err := h.db.QueryRow(r.Context(),
 		`INSERT INTO bookings (event_id, vendor_id, service_id, client_id, total_amount, escrow_amount, notes, event_date)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
+		 VALUES ($1, $2, $3, $4, $5, 0, $6, $7::date)
 		 RETURNING id, event_id, vendor_id, service_id, client_id, status, total_amount, escrow_amount, escrow_released, notes, event_date, created_at, updated_at`,
-		body.EventID, body.VendorID, body.ServiceID, u.ID, body.TotalAmount, escrowAmount, body.Notes, body.EventDate,
+		body.EventID, body.VendorID, body.ServiceID, u.ID, body.TotalAmount, body.Notes, body.EventDate,
 	).Scan(
 		&booking.ID, &booking.EventID, &booking.VendorID, &booking.ServiceID,
 		&booking.ClientID, &booking.Status, &booking.TotalAmount, &booking.EscrowAmount,
@@ -254,15 +228,6 @@ func (h *VendorsHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to create booking")
 		return
 	}
-
-	// Record escrow transaction
-	_, _ = tx.Exec(r.Context(),
-		`INSERT INTO wallet_transactions (wallet_id, type, amount, status, description, booking_id)
-		 VALUES ($1, 'escrow_hold', $2, 'success', 'Escrow held for vendor booking', $3)`,
-		walletID, escrowAmount, booking.ID,
-	)
-
-	_ = tx.Commit(r.Context())
 	writeJSON(w, http.StatusCreated, booking)
 }
 

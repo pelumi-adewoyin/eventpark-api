@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/eventpark/api/internal/middleware"
@@ -332,7 +333,7 @@ func (h *VendorDashboardHandler) ListServices(w http.ResponseWriter, r *http.Req
 	}
 
 	rows, err := h.db.Query(r.Context(),
-		`SELECT id, vendor_id, name, description, price_from, price_to, unit,
+		`SELECT id, vendor_id, name, category, description, price_from, price_to, unit,
 		        pricing_model, is_active, min_notice_hours, max_advance_days, response_time_hrs,
 		        created_at, updated_at
 		 FROM vendor_services WHERE vendor_id = $1 ORDER BY created_at DESC`, vendorID,
@@ -347,7 +348,7 @@ func (h *VendorDashboardHandler) ListServices(w http.ResponseWriter, r *http.Req
 	for rows.Next() {
 		var s models.VendorService
 		if err := rows.Scan(
-			&s.ID, &s.VendorID, &s.Name, &s.Description, &s.PriceFrom, &s.PriceTo, &s.Unit,
+			&s.ID, &s.VendorID, &s.Name, &s.Category, &s.Description, &s.PriceFrom, &s.PriceTo, &s.Unit,
 			&s.PricingModel, &s.IsActive, &s.MinNoticeHours, &s.MaxAdvanceDays, &s.ResponseTimeHrs,
 			&s.CreatedAt, &s.UpdatedAt,
 		); err == nil {
@@ -379,6 +380,7 @@ func (h *VendorDashboardHandler) CreateService(w http.ResponseWriter, r *http.Re
 
 	var body struct {
 		Name            string  `json:"name"`
+		Category        *string `json:"category"`
 		Description     *string `json:"description"`
 		PriceFrom       int64   `json:"price_from"`
 		PriceTo         *int64  `json:"price_to"`
@@ -407,16 +409,16 @@ func (h *VendorDashboardHandler) CreateService(w http.ResponseWriter, r *http.Re
 
 	var s models.VendorService
 	err := h.db.QueryRow(r.Context(),
-		`INSERT INTO vendor_services (vendor_id, name, description, price_from, price_to, unit,
+		`INSERT INTO vendor_services (vendor_id, name, category, description, price_from, price_to, unit,
 		                             pricing_model, min_notice_hours, max_advance_days, response_time_hrs)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		 RETURNING id, vendor_id, name, description, price_from, price_to, unit,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 RETURNING id, vendor_id, name, category, description, price_from, price_to, unit,
 		           pricing_model, is_active, min_notice_hours, max_advance_days, response_time_hrs,
 		           created_at, updated_at`,
-		vendorID, body.Name, body.Description, body.PriceFrom, body.PriceTo, body.Unit,
+		vendorID, body.Name, body.Category, body.Description, body.PriceFrom, body.PriceTo, body.Unit,
 		body.PricingModel, body.MinNoticeHours, body.MaxAdvanceDays, body.ResponseTimeHrs,
 	).Scan(
-		&s.ID, &s.VendorID, &s.Name, &s.Description, &s.PriceFrom, &s.PriceTo, &s.Unit,
+		&s.ID, &s.VendorID, &s.Name, &s.Category, &s.Description, &s.PriceFrom, &s.PriceTo, &s.Unit,
 		&s.PricingModel, &s.IsActive, &s.MinNoticeHours, &s.MaxAdvanceDays, &s.ResponseTimeHrs,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
@@ -1067,6 +1069,112 @@ func (h *VendorDashboardHandler) GetAvailability(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, av)
+}
+
+// ─── CUSTOMER ORDER PLACEMENT ─────────────────────────────────────────────────
+
+// POST /orders — authenticated customer places a product order with a product vendor
+func (h *VendorDashboardHandler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r)
+	if u == nil {
+		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	var body struct {
+		VendorID        string `json:"vendor_id"`
+		Items           []struct {
+			ProductID string `json:"product_id"`
+			Qty       int    `json:"qty"`
+		} `json:"items"`
+		DeliveryAddress *string `json:"delivery_address"`
+		DeliveryZone    *string `json:"delivery_zone"`
+		Notes           *string `json:"notes"`
+	}
+	if err := decode(r, &body); err != nil || body.VendorID == "" || len(body.Items) == 0 {
+		writeErr(w, http.StatusBadRequest, "vendor_id and at least one item are required")
+		return
+	}
+
+	vendorID, err := uuid.Parse(body.VendorID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid vendor_id")
+		return
+	}
+
+	tx, _ := h.db.Begin(r.Context())
+	defer tx.Rollback(r.Context())
+
+	type resolvedItem struct {
+		productID uuid.UUID
+		name      string
+		qty       int
+		unitPrice int64
+	}
+	var resolved []resolvedItem
+	var totalAmount int64
+
+	for _, item := range body.Items {
+		if item.Qty < 1 {
+			item.Qty = 1
+		}
+		productID, parseErr := uuid.Parse(item.ProductID)
+		if parseErr != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("invalid product_id: %s", item.ProductID))
+			return
+		}
+		var name string
+		var price int64
+		var active bool
+		scanErr := tx.QueryRow(r.Context(),
+			`SELECT name, price, active FROM products WHERE id = $1 AND vendor_id = $2`,
+			productID, vendorID,
+		).Scan(&name, &price, &active)
+		if scanErr != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("product not found: %s", item.ProductID))
+			return
+		}
+		if !active {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("product '%s' is not available", name))
+			return
+		}
+		totalAmount += price * int64(item.Qty)
+		resolved = append(resolved, resolvedItem{productID, name, item.Qty, price})
+	}
+
+	// Create order record
+	var orderID uuid.UUID
+	err = tx.QueryRow(r.Context(),
+		`INSERT INTO orders (vendor_id, customer_id, total_amount, escrow_amount, delivery_address, delivery_zone, notes)
+		 VALUES ($1, $2, $3, $3, $4, $5, $6)
+		 RETURNING id`,
+		vendorID, u.ID, totalAmount, body.DeliveryAddress, body.DeliveryZone, body.Notes,
+	).Scan(&orderID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to create order")
+		return
+	}
+
+	// Create order item rows
+	for _, item := range resolved {
+		_, itemErr := tx.Exec(r.Context(),
+			`INSERT INTO order_items (order_id, product_id, name, qty, unit_price)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			orderID, item.productID, item.name, item.qty, item.unitPrice,
+		)
+		if itemErr != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to create order items")
+			return
+		}
+	}
+
+	_ = tx.Commit(r.Context())
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"id":           orderID,
+		"total_amount": totalAmount,
+		"status":       "new",
+		"message":      "Order placed successfully — the vendor will confirm soon.",
+	})
 }
 
 // PATCH /vendor/availability
