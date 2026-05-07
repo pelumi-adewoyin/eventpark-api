@@ -7,12 +7,8 @@ import (
 	"github.com/eventpark/api/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-// pgxRows is an alias so we can declare rows variables before branch assignment.
-type pgxRows = pgx.Rows
 
 // VendorDashboardHandler handles all /vendor/* routes — endpoints only accessible
 // to users whose role='vendor' and who have an associated vendors record.
@@ -538,24 +534,19 @@ func (h *VendorDashboardHandler) ListOrders(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	status := r.URL.Query().Get("status")
+	status := r.URL.Query().Get("status") // empty string = all statuses
 
-	const baseQ = `SELECT o.id, o.vendor_id, o.customer_id, o.status, o.total_amount, o.escrow_amount,
+	rows, err := h.db.Query(r.Context(),
+		`SELECT o.id, o.vendor_id, o.customer_id, o.status, o.total_amount, o.escrow_amount,
 		        o.escrow_released, o.delivery_address, o.delivery_zone, o.notes, o.created_at, o.updated_at,
 		        u.full_name, u.phone
 		 FROM orders o
 		 JOIN users u ON u.id = o.customer_id
-		 WHERE o.vendor_id = $1`
-
-	var (
-		rows pgxRows
-		err  error
+		 WHERE o.vendor_id = $1
+		   AND ($2::text = '' OR o.status = $2::text)
+		 ORDER BY o.created_at DESC LIMIT 100`,
+		vendorID, status,
 	)
-	if status != "" {
-		rows, err = h.db.Query(r.Context(), baseQ+" AND o.status = $2 ORDER BY o.created_at DESC LIMIT 100", vendorID, status)
-	} else {
-		rows, err = h.db.Query(r.Context(), baseQ+" ORDER BY o.created_at DESC LIMIT 100", vendorID)
-	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to fetch orders")
 		return
@@ -636,25 +627,20 @@ func (h *VendorDashboardHandler) ListBookings(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	status := r.URL.Query().Get("status")
+	status := r.URL.Query().Get("status") // empty string = all statuses
 
-	const baseQ = `SELECT b.id, b.event_id, b.vendor_id, b.service_id, b.client_id, b.status,
+	rows, err := h.db.Query(r.Context(),
+		`SELECT b.id, b.event_id, b.vendor_id, b.service_id, b.client_id, b.status,
 		        b.total_amount, b.escrow_amount, b.escrow_released, b.notes, b.event_date,
 		        b.created_at, b.updated_at,
 		        u.full_name, u.phone
 		 FROM bookings b
 		 JOIN users u ON u.id = b.client_id
-		 WHERE b.vendor_id = $1`
-
-	var (
-		rows pgxRows
-		err  error
+		 WHERE b.vendor_id = $1
+		   AND ($2::text = '' OR b.status = $2::text)
+		 ORDER BY b.created_at DESC LIMIT 100`,
+		vendorID, status,
 	)
-	if status != "" {
-		rows, err = h.db.Query(r.Context(), baseQ+" AND b.status = $2 ORDER BY b.created_at DESC LIMIT 100", vendorID, status)
-	} else {
-		rows, err = h.db.Query(r.Context(), baseQ+" ORDER BY b.created_at DESC LIMIT 100", vendorID)
-	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to fetch bookings")
 		return
