@@ -51,7 +51,10 @@ func main() {
 	procH    := handlers.NewProcurementHandler(pool)
 	corpWalH := handlers.NewCorpWalletHandler(pool)
 	auditH   := handlers.NewAuditHandler(pool)
-	budgetPH := handlers.NewPersonalBudgetHandler(pool)
+	budgetPH    := handlers.NewPersonalBudgetHandler(pool)
+	bookmarkH   := handlers.NewBookmarkHandler(pool)
+	bookingExtH := handlers.NewBookingExtHandler(pool)
+	wishlistH   := handlers.NewWishlistHandler(pool)
 
 	r := chi.NewRouter()
 
@@ -152,6 +155,22 @@ func main() {
 		// ── Bookings ──────────────────────────────────────────────────────────
 		r.Post("/bookings", vendorsH.CreateBooking)
 		r.Post("/bookings/{id}/release-escrow", vendorsH.ReleaseEscrow)
+		r.Get("/bookings", bookingExtH.List)
+		r.Get("/bookings/{id}", bookingExtH.Get)
+		r.Post("/bookings/{id}/quote/respond", bookingExtH.RespondQuote)
+		r.Post("/bookings/{id}/pay", bookingExtH.Pay)
+
+		// ── Bookmarks ─────────────────────────────────────────────────────────
+		r.Post("/bookmarks", bookmarkH.Create)
+		r.Get("/bookmarks", bookmarkH.List)
+		r.Delete("/bookmarks/{type}/{id}", bookmarkH.Delete)
+
+		// ── Wishlists ─────────────────────────────────────────────────────────
+		r.Get("/wishlists", wishlistH.List)
+		r.Post("/wishlists", wishlistH.Create)
+		r.Get("/wishlists/{id}", wishlistH.Get)
+		r.Post("/wishlists/{id}/items", wishlistH.AddItem)
+		r.Delete("/wishlists/{id}/items/{itemId}", wishlistH.DeleteItem)
 
 		// ── Notifications ─────────────────────────────────────────────────────
 		r.Get("/notifications", rsvpH.ListNotifications)

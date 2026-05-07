@@ -150,6 +150,7 @@ func seedExistingMigrations(ctx context.Context, pool *pgxpool.Pool, files []str
 		"002_phase2_gaps.sql":      "event_budget_lines",
 		"003_corporate_phase4.sql": "departments",
 		"004_budgets.sql":          "personal_budgets",
+		"005_bookmarks_chat.sql":   "bookmarks",
 	}
 
 	for _, filename := range files {
