@@ -159,10 +159,11 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 			`WITH upserted AS (
 			   INSERT INTO users (phone) VALUES ($1)
 			   ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
-			   RETURNING id, phone, email, full_name, avatar_url, role, kyc_tier, onboarding_done, created_at, updated_at
+			   RETURNING id, phone, email, full_name, avatar_url,
+			             role::text, kyc_tier::text, onboarding_done, created_at, updated_at
 			 )
-			 SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
-			        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
+			 SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url,
+			        u.role, u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
 			        m.org_id, o.name
 			 FROM upserted u
 			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
@@ -176,8 +177,8 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		)
 	} else {
 		fetchErr = h.db.QueryRow(r.Context(),
-			`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
-			        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
+			`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url,
+			        u.role::text, u.kyc_tier::text, u.onboarding_done, u.created_at, u.updated_at,
 			        m.org_id, o.name
 			 FROM users u
 			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
@@ -192,6 +193,8 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 	if fetchErr != nil {
+		log.Printf("VerifyOTP: user fetch failed for phone=%s create_if_missing=%v: %v",
+			body.Phone, body.CreateIfMissing, fetchErr)
 		writeErr(w, http.StatusNotFound, "No account found for this number. Please sign up to create one.")
 		return
 	}
