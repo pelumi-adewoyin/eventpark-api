@@ -146,6 +146,11 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Demo account: always upsert so the user always exists regardless of DB state.
+	if body.Phone == demoPhone {
+		body.CreateIfMissing = true
+	}
+
 	// Validate OTP
 	var otpID uuid.UUID
 	err := h.db.QueryRow(r.Context(),
