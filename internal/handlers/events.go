@@ -27,19 +27,19 @@ func (h *EventsHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Title       string  `json:"title"`
-		Description *string `json:"description"`
-		EventType   string  `json:"event_type"`
-		Visibility  string  `json:"visibility"`
-		VenueName   *string `json:"venue_name"`
+		Title        string  `json:"title"`
+		Description  *string `json:"description"`
+		EventType    string  `json:"event_type"`
+		Visibility   string  `json:"visibility"`
+		VenueName    *string `json:"venue_name"`
 		VenueAddress *string `json:"venue_address"`
-		VenueCity   *string `json:"venue_city"`
-		VenueState  *string `json:"venue_state"`
-		StartAt     *string `json:"start_at"`
-		EndAt       *string `json:"end_at"`
-		MaxGuests   *int    `json:"max_guests"`
-		BudgetTotal int64   `json:"budget_total"`
-		TicketPrice int64   `json:"ticket_price"`
+		VenueCity    *string `json:"venue_city"`
+		VenueState   *string `json:"venue_state"`
+		StartAt      *string `json:"start_at"`
+		EndAt        *string `json:"end_at"`
+		MaxGuests    *int    `json:"max_guests"`
+		BudgetTotal  int64   `json:"budget_total"`
+		TicketPrice  int64   `json:"ticket_price"`
 	}
 	if err := decode(r, &body); err != nil || body.Title == "" {
 		writeErr(w, http.StatusBadRequest, "title is required")
@@ -58,9 +58,11 @@ func (h *EventsHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO events (owner_id, title, description, event_type, visibility, venue_name,
 		  venue_address, venue_city, venue_state, start_at, end_at, max_guests, budget_total, ticket_price)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-		 RETURNING id, owner_id, title, description, event_type, visibility, status,
+		 RETURNING id, owner_id, title, description,
+		   event_type::text, visibility::text, status::text,
 		   start_at, end_at, venue_name, venue_address, venue_city, venue_state,
-		   cover_url, max_guests, budget_total, ticket_price, approval_status, created_at, updated_at`,
+		   cover_url, max_guests, budget_total, ticket_price, approval_status::text,
+		   created_at, updated_at`,
 		u.ID, body.Title, body.Description, body.EventType, body.Visibility,
 		body.VenueName, body.VenueAddress, body.VenueCity, body.VenueState,
 		body.StartAt, body.EndAt, body.MaxGuests, body.BudgetTotal, body.TicketPrice,
@@ -88,12 +90,13 @@ func (h *EventsHandler) ListMyEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.Query(r.Context(),
-		`SELECT e.id, e.owner_id, e.title, e.description, e.event_type, e.visibility, e.status,
+		`SELECT e.id, e.owner_id, e.title, e.description,
+		   e.event_type::text, e.visibility::text, e.status::text,
 		   e.start_at, e.end_at, e.venue_name, e.venue_address, e.venue_city, e.venue_state,
-		   e.cover_url, e.max_guests, e.budget_total, e.ticket_price, e.approval_status,
+		   e.cover_url, e.max_guests, e.budget_total, e.ticket_price, e.approval_status::text,
 		   e.created_at, e.updated_at,
-		   COUNT(g.id) FILTER (WHERE g.status != 'invited') AS guest_count,
-		   COUNT(g.id) FILTER (WHERE g.status = 'checked_in') AS checked_in
+		   COUNT(g.id) FILTER (WHERE g.status::text != 'invited') AS guest_count,
+		   COUNT(g.id) FILTER (WHERE g.status::text = 'checked_in') AS checked_in
 		 FROM events e
 		 LEFT JOIN guests g ON g.event_id = e.id
 		 WHERE e.owner_id = $1
@@ -135,12 +138,13 @@ func (h *EventsHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
 
 	var e models.Event
 	err = h.db.QueryRow(r.Context(),
-		`SELECT e.id, e.owner_id, e.title, e.description, e.event_type, e.visibility, e.status,
+		`SELECT e.id, e.owner_id, e.title, e.description,
+		   e.event_type::text, e.visibility::text, e.status::text,
 		   e.start_at, e.end_at, e.venue_name, e.venue_address, e.venue_city, e.venue_state,
-		   e.cover_url, e.max_guests, e.budget_total, e.ticket_price, e.approval_status,
+		   e.cover_url, e.max_guests, e.budget_total, e.ticket_price, e.approval_status::text,
 		   e.created_at, e.updated_at,
-		   COUNT(g.id) FILTER (WHERE g.status != 'invited') AS guest_count,
-		   COUNT(g.id) FILTER (WHERE g.status = 'checked_in') AS checked_in
+		   COUNT(g.id) FILTER (WHERE g.status::text != 'invited') AS guest_count,
+		   COUNT(g.id) FILTER (WHERE g.status::text = 'checked_in') AS checked_in
 		 FROM events e
 		 LEFT JOIN guests g ON g.event_id = e.id
 		 WHERE e.id = $1
@@ -226,14 +230,13 @@ func (h *EventsHandler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check event ownership and visibility
-	var visibility string
-	var ticketPrice int64
+	// Verify ownership
+	var exists bool
 	err = h.db.QueryRow(r.Context(),
-		`SELECT visibility, ticket_price FROM events WHERE id = $1 AND owner_id = $2`,
+		`SELECT EXISTS(SELECT 1 FROM events WHERE id = $1 AND owner_id = $2)`,
 		id, u.ID,
-	).Scan(&visibility, &ticketPrice)
-	if err != nil {
+	).Scan(&exists)
+	if err != nil || !exists {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
 	}

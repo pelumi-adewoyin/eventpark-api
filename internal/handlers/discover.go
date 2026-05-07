@@ -32,14 +32,15 @@ func (h *DiscoverHandler) Events(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := (page - 1) * limit
 
-	query := `SELECT e.id, e.owner_id, e.title, e.description, e.event_type, e.visibility, e.status,
+	query := `SELECT e.id, e.owner_id, e.title, e.description,
+		e.event_type::text, e.visibility::text, e.status::text,
 		e.start_at, e.end_at, e.venue_name, e.venue_address, e.venue_city, e.venue_state,
-		e.cover_url, e.max_guests, e.budget_total, e.ticket_price, e.approval_status,
+		e.cover_url, e.max_guests, e.budget_total, e.ticket_price, e.approval_status::text,
 		e.created_at, e.updated_at,
-		COUNT(g.id) FILTER (WHERE g.status = 'rsvp_yes') AS guest_count, 0 AS checked_in
+		COUNT(g.id) FILTER (WHERE g.status::text = 'rsvp_yes') AS guest_count, 0 AS checked_in
 	  FROM events e
 	  LEFT JOIN guests g ON g.event_id = e.id
-	  WHERE e.status = 'published' AND e.visibility = 'public'`
+	  WHERE e.status::text = 'published' AND e.visibility::text = 'public'`
 	args := []any{}
 	argN := 1
 
