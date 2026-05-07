@@ -40,7 +40,8 @@ const demoOTP = "000000"
 // POST /auth/request-otp
 func (h *AuthHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Phone string `json:"phone"`
+		Phone           string `json:"phone"`
+		CreateIfMissing bool   `json:"create_if_missing"` // true during signup flow
 	}
 	if err := decode(r, &body); err != nil || body.Phone == "" {
 		writeErr(w, http.StatusBadRequest, "phone is required")
@@ -60,6 +61,19 @@ func (h *AuthHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 			"demo":       true,
 		})
 		return
+	}
+
+	// Reject phones that have no account — login is for existing users only.
+	// Signup sets create_if_missing=true to bypass this check.
+	if !body.CreateIfMissing {
+		var accountExists bool
+		_ = h.db.QueryRow(r.Context(),
+			`SELECT EXISTS(SELECT 1 FROM users WHERE phone = $1)`, body.Phone,
+		).Scan(&accountExists)
+		if !accountExists {
+			writeErr(w, http.StatusNotFound, "No account found for this number. Please sign up to create one.")
+			return
+		}
 	}
 
 	// Generate 6-digit OTP
@@ -123,8 +137,9 @@ func (h *AuthHandler) sendTermiiOTP(phone, code string) error {
 // POST /auth/verify-otp
 func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Phone string `json:"phone"`
-		Code  string `json:"code"`
+		Phone           string `json:"phone"`
+		Code            string `json:"code"`
+		CreateIfMissing bool   `json:"create_if_missing"` // true during signup flow
 	}
 	if err := decode(r, &body); err != nil || body.Phone == "" || body.Code == "" {
 		writeErr(w, http.StatusBadRequest, "phone and code are required")
@@ -147,28 +162,48 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	// Mark OTP used
 	_, _ = h.db.Exec(r.Context(), `UPDATE otp_codes SET used = true WHERE id = $1`, otpID)
 
-	// Upsert user, then fetch with org_id in one query
+	// Fetch the user. During signup (create_if_missing=true) we upsert so the
+	// account is created on first OTP verify. During login we only look up —
+	// if the phone isn't registered we reject with a clear error.
 	var user models.User
-	err = h.db.QueryRow(r.Context(),
-		`WITH upserted AS (
-		   INSERT INTO users (phone) VALUES ($1)
-		   ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
-		   RETURNING id, phone, email, full_name, avatar_url, role, kyc_tier, onboarding_done, created_at, updated_at
-		 )
-		 SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
-		        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
-		        m.org_id
-		 FROM upserted u
-		 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
-		 LIMIT 1`,
-		body.Phone,
-	).Scan(
-		&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
-		&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
-		&user.OrgID,
-	)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to upsert user")
+	var fetchErr error
+	if body.CreateIfMissing {
+		fetchErr = h.db.QueryRow(r.Context(),
+			`WITH upserted AS (
+			   INSERT INTO users (phone) VALUES ($1)
+			   ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
+			   RETURNING id, phone, email, full_name, avatar_url, role, kyc_tier, onboarding_done, created_at, updated_at
+			 )
+			 SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
+			        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
+			        m.org_id
+			 FROM upserted u
+			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
+			 LIMIT 1`,
+			body.Phone,
+		).Scan(
+			&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
+			&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
+			&user.OrgID,
+		)
+	} else {
+		fetchErr = h.db.QueryRow(r.Context(),
+			`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
+			        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
+			        m.org_id
+			 FROM users u
+			 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
+			 WHERE u.phone = $1
+			 LIMIT 1`,
+			body.Phone,
+		).Scan(
+			&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
+			&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
+			&user.OrgID,
+		)
+	}
+	if fetchErr != nil {
+		writeErr(w, http.StatusNotFound, "No account found for this number. Please sign up to create one.")
 		return
 	}
 
