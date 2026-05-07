@@ -33,7 +33,7 @@ func (h *UsersHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		        v.id, v.vendor_type, v.business_name, v.verification_status, v.verification_tier
 		 FROM users u
 		 LEFT JOIN org_members m ON m.user_id = u.id
-		 LEFT JOIN orgs o ON o.id = m.org_id
+		 LEFT JOIN organisations o ON o.id = m.org_id
 		 LEFT JOIN vendors v ON v.user_id = u.id
 		 WHERE u.id = $1
 		 LIMIT 1`, u.ID,
