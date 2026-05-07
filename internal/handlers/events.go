@@ -46,10 +46,21 @@ func (h *EventsHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.EventType == "" {
+	// Sanitise against the DB enum — unknown values fall back to 'other'.
+	validEventTypes := map[string]bool{
+		"wedding": true, "birthday": true, "corporate_retreat": true, "conference": true,
+		"product_launch": true, "concert": true, "fundraiser": true, "baby_shower": true,
+		"graduation": true, "house_party": true, "other": true,
+		// extended types (migration 007)
+		"naming": true, "social": true, "workshop": true, "popup": true,
+		"retreat": true, "teamparty": true, "festival": true, "dj_night": true,
+		"meetup": true, "comedy_show": true, "theatre": true, "brand_activation": true,
+	}
+	if body.EventType == "" || !validEventTypes[body.EventType] {
 		body.EventType = "other"
 	}
-	if body.Visibility == "" {
+	validVisibility := map[string]bool{"private": true, "public": true, "corporate": true}
+	if body.Visibility == "" || !validVisibility[body.Visibility] {
 		body.Visibility = "private"
 	}
 
