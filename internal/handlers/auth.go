@@ -147,16 +147,25 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	// Mark OTP used
 	_, _ = h.db.Exec(r.Context(), `UPDATE otp_codes SET used = true WHERE id = $1`, otpID)
 
-	// Upsert user
+	// Upsert user, then fetch with org_id in one query
 	var user models.User
 	err = h.db.QueryRow(r.Context(),
-		`INSERT INTO users (phone) VALUES ($1)
-		 ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
-		 RETURNING id, phone, email, full_name, avatar_url, role, kyc_tier, onboarding_done, created_at, updated_at`,
+		`WITH upserted AS (
+		   INSERT INTO users (phone) VALUES ($1)
+		   ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
+		   RETURNING id, phone, email, full_name, avatar_url, role, kyc_tier, onboarding_done, created_at, updated_at
+		 )
+		 SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role,
+		        u.kyc_tier, u.onboarding_done, u.created_at, u.updated_at,
+		        m.org_id
+		 FROM upserted u
+		 LEFT JOIN org_members m ON m.user_id = u.id AND m.active = true
+		 LIMIT 1`,
 		body.Phone,
 	).Scan(
 		&user.ID, &user.Phone, &user.Email, &user.FullName, &user.AvatarURL,
 		&user.Role, &user.KYCTier, &user.OnboardingDone, &user.CreatedAt, &user.UpdatedAt,
+		&user.OrgID,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to upsert user")

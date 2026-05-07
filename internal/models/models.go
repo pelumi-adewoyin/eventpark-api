@@ -17,6 +17,7 @@ type User struct {
 	Role           *string    `json:"role,omitempty"`
 	KYCTier        string     `json:"kyc_tier"`
 	OnboardingDone bool       `json:"onboarding_done"`
+	OrgID          *uuid.UUID `json:"org_id,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
