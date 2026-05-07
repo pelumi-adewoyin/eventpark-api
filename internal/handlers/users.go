@@ -28,7 +28,7 @@ func (h *UsersHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	err := h.db.QueryRow(r.Context(),
 		`SELECT u.id, u.phone, u.email, u.full_name, u.avatar_url, u.role::text,
-		        u.kyc_tier::text, u.onboarding_done, u.created_at, u.updated_at,
+		        COALESCE(u.kyc_tier::text, '0'), u.onboarding_done, u.created_at, u.updated_at,
 		        m.org_id, o.name,
 		        v.id, v.vendor_type, v.business_name, v.verification_status, v.verification_tier
 		 FROM users u
