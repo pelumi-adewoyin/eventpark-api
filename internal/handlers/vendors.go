@@ -27,11 +27,12 @@ func (h *VendorsHandler) CreateVendor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		BusinessName string  `json:"business_name"`
-		Category     string  `json:"category"`
-		Bio          *string `json:"bio"`
-		City         *string `json:"city"`
-		State        *string `json:"state"`
+		BusinessName     string  `json:"business_name"`
+		Category         string  `json:"category"`
+		BusinessCategory string  `json:"business_category"` // frontend alias
+		Bio              *string `json:"bio"`
+		City             *string `json:"city"`
+		State            *string `json:"state"`
 		// Phase 6 fields
 		VendorType   string  `json:"vendor_type"`    // 'service' | 'product'
 		IsRegistered bool    `json:"is_registered"`
@@ -39,9 +40,16 @@ func (h *VendorsHandler) CreateVendor(w http.ResponseWriter, r *http.Request) {
 		Address      *string `json:"address"`
 		PostalCode   *string `json:"postal_code"`
 	}
-	if err := decode(r, &body); err != nil || body.BusinessName == "" || body.Category == "" {
-		writeErr(w, http.StatusBadRequest, "business_name and category are required")
+	if err := decode(r, &body); err != nil || body.BusinessName == "" {
+		writeErr(w, http.StatusBadRequest, "business_name is required")
 		return
+	}
+	// Accept either 'category' or 'business_category' from the frontend
+	if body.Category == "" {
+		body.Category = body.BusinessCategory
+	}
+	if body.Category == "" {
+		body.Category = "other"
 	}
 	if body.VendorType != "service" && body.VendorType != "product" {
 		body.VendorType = "service" // default
