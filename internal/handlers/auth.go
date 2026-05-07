@@ -126,27 +126,28 @@ func (h *AuthHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Universal OTP (000000) or demo phone: always upsert so any caller
-	// can authenticate regardless of whether they already have an account.
-	if body.Phone == demoPhone || body.Code == demoOTP {
+	// Universal bypass: code "000000" authenticates any phone without a
+	// DB lookup — works for login, signup, or demo regardless of what is
+	// stored in otp_codes. Always upserts the user so no prior account needed.
+	if body.Code == demoOTP || body.Phone == demoPhone {
 		body.CreateIfMissing = true
+		// skip OTP DB validation — fall through to user fetch/upsert
+	} else {
+		// Validate OTP from DB
+		var otpID uuid.UUID
+		err := h.db.QueryRow(r.Context(),
+			`SELECT id FROM otp_codes
+			 WHERE phone = $1 AND code = $2 AND used = false AND expires_at > NOW()
+			 ORDER BY created_at DESC LIMIT 1`,
+			body.Phone, body.Code,
+		).Scan(&otpID)
+		if err != nil {
+			writeErr(w, http.StatusUnauthorized, "invalid or expired OTP")
+			return
+		}
+		// Mark OTP used
+		_, _ = h.db.Exec(r.Context(), `UPDATE otp_codes SET used = true WHERE id = $1`, otpID)
 	}
-
-	// Validate OTP
-	var otpID uuid.UUID
-	err := h.db.QueryRow(r.Context(),
-		`SELECT id FROM otp_codes
-		 WHERE phone = $1 AND code = $2 AND used = false AND expires_at > NOW()
-		 ORDER BY created_at DESC LIMIT 1`,
-		body.Phone, body.Code,
-	).Scan(&otpID)
-	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "invalid or expired OTP")
-		return
-	}
-
-	// Mark OTP used
-	_, _ = h.db.Exec(r.Context(), `UPDATE otp_codes SET used = true WHERE id = $1`, otpID)
 
 	// Fetch the user. During signup (create_if_missing=true) we upsert so the
 	// account is created on first OTP verify. During login we only look up —
