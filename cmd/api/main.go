@@ -90,6 +90,7 @@ func main() {
 	r.Get("/discover/events/{id}", discoverH.GetEvent)
 	r.Get("/discover/events/{id}/tickets", discoverH.GetEventTickets)
 	r.Get("/discover/vendors", discoverH.Vendors)
+	r.Get("/discover/vendors/{id}", discoverH.GetVendorDetail)
 	r.Get("/discover/products", discoverH.Products)
 
 	// ── RSVP (public — guest follows their link) ──────────────────────────────

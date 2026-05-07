@@ -173,7 +173,7 @@ func (h *DiscoverHandler) GetEventTickets(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, tiers)
 }
 
-// GET /discover/vendors?category=catering&city=Lagos
+// GET /discover/vendors?category=catering&city=Lagos — service vendors only
 func (h *DiscoverHandler) Vendors(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	category := q.Get("category")
@@ -189,8 +189,9 @@ func (h *DiscoverHandler) Vendors(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := (page - 1) * limit
 
+	// Only show service vendors in the vendor directory
 	query := `SELECT id, user_id, business_name, category, bio, city, state, avatar_url, cover_url, rating, review_count, verified, created_at
-	  FROM vendors WHERE true`
+	  FROM vendors WHERE vendor_type = 'service'`
 	args := []any{}
 	argN := 1
 
@@ -236,6 +237,66 @@ func (h *DiscoverHandler) Vendors(w http.ResponseWriter, r *http.Request) {
 		"page":    page,
 		"limit":   limit,
 	})
+}
+
+// GET /discover/vendors/:id — single service vendor profile (public)
+func (h *DiscoverHandler) GetVendorDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid vendor id")
+		return
+	}
+
+	var v models.Vendor
+	err = h.db.QueryRow(r.Context(),
+		`SELECT id, user_id, business_name, category, bio, city, state,
+		        avatar_url, cover_url, rating, review_count, verified,
+		        vendor_type, verification_status, verification_tier,
+		        tagline, highlight_1, highlight_2, highlight_3,
+		        years_experience, events_completed, website, instagram, twitter, whatsapp,
+		        created_at, updated_at
+		 FROM vendors WHERE id = $1 AND vendor_type = 'service'`, id,
+	).Scan(
+		&v.ID, &v.UserID, &v.BusinessName, &v.Category,
+		&v.Bio, &v.City, &v.State, &v.AvatarURL, &v.CoverURL,
+		&v.Rating, &v.ReviewCount, &v.Verified,
+		&v.VendorType, &v.VerificationStatus, &v.VerificationTier,
+		&v.Tagline, &v.Highlight1, &v.Highlight2, &v.Highlight3,
+		&v.YearsExperience, &v.EventsCompleted, &v.Website,
+		&v.Instagram, &v.Twitter, &v.WhatsApp,
+		&v.CreatedAt, &v.UpdatedAt,
+	)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "vendor not found")
+		return
+	}
+
+	// Fetch services
+	svcRows, _ := h.db.Query(r.Context(),
+		`SELECT id, vendor_id, name, description, price_from, price_to, unit, created_at
+		 FROM vendor_services WHERE vendor_id = $1`, id,
+	)
+	defer svcRows.Close()
+	for svcRows.Next() {
+		var s models.VendorService
+		if err := svcRows.Scan(&s.ID, &s.VendorID, &s.Name, &s.Description, &s.PriceFrom, &s.PriceTo, &s.Unit, &s.CreatedAt); err == nil {
+			v.Services = append(v.Services, s)
+		}
+	}
+
+	// Fetch portfolio
+	portRows, _ := h.db.Query(r.Context(),
+		`SELECT id, vendor_id, image_url, caption, created_at FROM vendor_portfolio WHERE vendor_id = $1 LIMIT 20`, id,
+	)
+	defer portRows.Close()
+	for portRows.Next() {
+		var p models.VendorPortfolio
+		if err := portRows.Scan(&p.ID, &p.VendorID, &p.ImageURL, &p.Caption, &p.CreatedAt); err == nil {
+			v.Portfolio = append(v.Portfolio, p)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, v)
 }
 
 // GET /discover/products?category=decor&q=balloon
