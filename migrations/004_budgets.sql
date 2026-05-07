@@ -38,4 +38,4 @@ CREATE TABLE IF NOT EXISTS budget_expenses (
 DROP TRIGGER IF EXISTS trg_personal_budgets_updated_at ON personal_budgets;
 CREATE TRIGGER trg_personal_budgets_updated_at
     BEFORE UPDATE ON personal_budgets
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
